@@ -1,0 +1,292 @@
+const express = require("express");
+const Chat = require("../models/Chats");
+
+const Story = require("../models/Story");
+const Notification = require("../models/Notification");
+const ExtractedDocument = require("../models/ExtractedDocument");
+const verifyToken = require("../middlewares/verifyToken");
+const openai = require("../config/openai");
+const redis = require("../utils/redis");
+const searchRelevantChunks = require("../services/semanticSearch");
+const fetchLinkedStory = require("../utils/fetchLinkedStory");
+
+
+const router = express.Router();
+
+
+const casualGreetings = [
+  "hi","hello","hey","helloo","hellooo","morning","good morning",
+  "afternoon","good afternoon","evening","good evening","greetings",
+  "how are you","how are you doing","what's up","whats up","how's it going",
+  "how are things","how have you been","whats new","howdy"
+];
+
+function isCasualGreeting(msg) {
+  return casualGreetings.includes(msg.trim().toLowerCase());
+}
+
+
+// router.stack = router.stack || [];
+// router.stack.push({ route: { path: "/deleteChat/:id", method: "DELETE" } });
+// console.log("✅ Chat routes loaded: /chat/history, /chat/chat, /chat/createChat, /chat/deleteChat/:id");
+
+
+// GET chat history
+router.get("/history", verifyToken, async (req, res) => {
+  try {
+    const chats = await Chat.find({ userId: req.user.id })
+      .sort({ createdAt: -1 })
+      .populate("linkedStoryId");
+    res.status(200).json({ chats });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch history", error: error.message });
+  }
+});
+
+// Main chat route
+router.post("/chat", verifyToken, async (req, res) => {
+  console.log("🛰️ Incoming POST /api/chat/chat");
+  console.log("➡️ Headers:", req.headers);
+  console.log("➡️ Body:", req.body);
+
+  try {
+    const { message, chatId } = req.body;
+    const userId = req.user.id;
+
+    console.log("✅ Parsed message:", message);
+    console.log("✅ Chat ID:", chatId);
+    console.log("✅ User ID from token:", userId);
+
+    let chat = await Chat.findOne({ _id: chatId, userId });
+    if (!chat) {
+      console.warn("⚠️ Chat not found in DB for user:", userId);
+      return res.status(404).json({ message: "Chat not found" });
+    }
+
+    // --- Detect if user confirmed structured mode ---
+    const isAffirmative = /^(ok|okay|yes|sure|alright|yep|yeah|please do|go ahead)/i.test(
+      message.trim()
+    );
+
+    if (isAffirmative) {
+      chat.isStructuredMode = true;
+      await chat.save();
+      console.log("🧩 Structured mode activated for this chat.");
+    }
+
+    // --- Append user message ---
+    chat.messages.push({ user: "You", text: message });
+    await chat.save();
+
+    console.log("🧠 Building grounded context...");
+    const contextBlocks = [];
+    if (chat.linkedStoryId) {
+      const linkedStoryData = await fetchLinkedStory(chat.linkedStoryId);
+      if (linkedStoryData) contextBlocks.push(linkedStoryData);
+    }
+
+    const extractedDocs = await ExtractedDocument.find({
+      "metadata.uploaded_by": userId,
+      $or: [
+        { keywords: { $regex: new RegExp(message, "i") } },
+        { full_content: { $regex: new RegExp(message, "i") } },
+      ],
+    });
+
+    if (extractedDocs.length) {
+      contextBlocks.push(
+        extractedDocs.map(d => `- ${d.title}: ${d.content_summary}`).join("\n")
+      );
+    }
+
+    const safeContext = contextBlocks.join("\n\n").slice(0, 6000);
+
+    // --- Determine mode ---
+    const useStructuredMode = chat.isStructuredMode === true;
+
+    // --- Choose system prompt based on mode ---
+    const systemPrompt = useStructuredMode
+      ? `
+You are a Nigerian health and fiscal data analyst.
+Always answer using this structured markdown format:
+
+**Overview:**
+Summarize the topic or question clearly.
+
+**Key Data Points:**
+Provide specific numbers, sources, or facts relevant to the topic.
+
+**Policy Recommendations:**
+Suggest actionable strategies or decisions based on your analysis.
+
+**Challenges & Solutions:**
+Identify likely implementation barriers and how to overcome them.
+
+Be concise, analytical, and readable for a general audience.
+      `
+      : `
+You are a Nigeria Health Data Analyst.
+Use the following grounded data (if relevant) to answer the user's question naturally, in plain, conversational analysis.
+If some information is missing, explain clearly what data would be needed without fabricating.
+
+${safeContext}
+
+User Question: ${message}
+      `;
+
+    console.log("🚀 Calling OpenAI model...");
+
+    const aiResponse = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: systemPrompt },
+        ...chat.messages.slice(-6).map(m => ({
+          role: m.user === "You" ? "user" : "assistant",
+          content: m.text,
+        })),
+        { role: "user", content: message },
+      ],
+      max_tokens: 1500,
+      temperature: 0.6,
+    });
+
+    let aiReply = aiResponse.choices[0].message.content;
+    console.log("🤖 OpenAI reply received:", aiReply.slice(0, 100), "...");
+
+    // --- Add the structured mode offer ONLY after 5 user messages ---
+    const userMessageCount = chat.messages.filter(m => m.user === "You").length;
+
+    if (!useStructuredMode && userMessageCount >= 5) {
+      const followUpPrompt = `
+      
+Would you like me to present future answers in a structured format — **Overview**, **Key Data Points**, **Policy Recommendations**, and **Challenges & Solutions**?`;
+      aiReply = `${aiReply.trim()}\n\n${followUpPrompt}`;
+    }
+
+    // --- Save assistant message ---
+    chat.messages.push({ user: "NWS", text: aiReply });
+    await chat.save();
+
+    console.log("✅ Reply saved, responding to frontend.");
+    res.status(200).json({ reply: aiReply });
+  } catch (error) {
+    console.error("Hybrid Chat Error:", error);
+    res.status(500).json({ message: "Chat processing failed", error: error.message });
+  }
+});
+
+
+
+
+
+// PATCH update/edit a message
+router.patch("/:chatId/message/:messageId/edit", verifyToken, async (req, res) => {
+  try {
+    const { chatId, messageId } = req.params;
+    const { newText } = req.body;
+
+    // 🧠 Find the chat and verify ownership
+    const chat = await Chat.findOne({ _id: chatId, userId: req.user.id });
+    if (!chat) return res.status(404).json({ message: "Chat not found" });
+
+    // 🕵️‍♂️ Find the specific message inside chat
+    const messageIndex = chat.messages.findIndex(m => m._id.toString() === messageId);
+    if (messageIndex === -1) return res.status(404).json({ message: "Message not found" });
+
+    const oldText = chat.messages[messageIndex].text;
+
+    // ⚙️ Perform atomic update — no versioning conflict
+    await Chat.updateOne(
+      { _id: chatId, userId: req.user.id, "messages._id": messageId },
+      {
+        $push: { "messages.$.edits": { text: oldText, timestamp: new Date() } },
+        $set: { "messages.$.text": newText }
+      }
+    );
+
+    // 🧩 Fetch the updated chat for return
+    const updatedChat = await Chat.findById(chatId);
+
+    res.status(200).json({
+      message: "Message edited successfully",
+      chat: updatedChat,
+    });
+  } catch (error) {
+    console.error("Edit message error:", error);
+    res.status(500).json({ message: "Edit failed", error: error.message });
+  }
+});
+
+
+
+
+
+// POST create new chat
+// POST create new chat
+router.post("/createChat", verifyToken, async (req, res) => {
+  try {
+    const { name, linkedStoryId } = req.body;
+    let chatName = name || `Chat ${new Date().toLocaleDateString()}`;
+
+    // If linkedStoryId is provided → use story title as base name
+    if (linkedStoryId) {
+      const story = await Story.findById(linkedStoryId).select("title");
+      if (story?.title) {
+        // Use a compact name format
+        const cleanTitle = story.title.replace(/\s+/g, " ").trim();
+        chatName = `Story: ${cleanTitle.slice(0, 40)}`; // truncate to 40 chars
+      }
+    }
+
+    const chat = new Chat({
+      userId: req.user.id,
+      name: chatName,
+      messages: [],
+      linkedStoryId: linkedStoryId || null
+    });
+
+    await chat.save();
+    res.status(201).json({ chat });
+  } catch (error) {
+    res.status(500).json({ message: "Create chat failed", error: error.message });
+  }
+});
+
+
+// GET single chat
+// GET single chat by ID
+router.get("/:id", verifyToken, async (req, res) => {
+  try {
+    const chatId = req.params.id;
+    const userId = req.user.id;
+
+    const chat = await Chat.findOne({ _id: chatId, userId });
+
+    if (!chat) {
+      return res.status(404).json({ error: "Chat not found" });
+    }
+
+    res.status(200).json(chat);
+  } catch (error) {
+    console.error("Error fetching chat:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+
+
+
+// DELETE chat
+router.delete("/deleteChat/:id", verifyToken, async (req, res) => {
+  try {
+    const chat = await Chat.findOneAndDelete({ _id: req.params.id, userId: req.user.id });
+    if (!chat) return res.status(404).json({ message: "Chat not found" });
+    res.status(200).json({ message: "Chat deleted" });
+  } catch (error) {
+    res.status(500).json({ message: "Delete failed", error: error.message });
+  }
+});
+
+
+
+module.exports = router;
