@@ -106,28 +106,10 @@ app.set("trust proxy", 1);
 
 (async () => {
   try {
-    const allowedOrigins = [
-      "https://frontend-repo-vc6v.onrender.com",
-      "https://frontend-repo-tnxf.onrender.com",
-      "https://ns.pilot.nigeriahealthwatch.com",
-      "https://pilot.nigeriahealthwatch.com",
-      "http://localhost:3000",
-      "http://localhost:5173",
-    ];
-
     const corsOptions = {
       origin: (origin, callback) => {
-        if (!origin) {
-          console.log("Request Origin: undefined – Allowing request");
-          return callback(null, true);
-        }
-        if (!allowedOrigins.includes(origin)) {
-          const msg = `Blocked by CORS – Origin: ${origin}`;
-          console.error(msg);
-          return callback(new Error(msg), false);
-        }
-        // console.log(`Allowed Origin: ${origin}`);
-        return callback(null, true);
+       // Allow all origins for development
+        return callback(null, true); 
       },
       methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
       allowedHeaders: ["Content-Type", "Authorization"],
@@ -137,7 +119,7 @@ app.set("trust proxy", 1);
     cron.schedule("*/30 * * * *", runAlertsCron);
 
     app.use(cors(corsOptions));
-    app.options("*", cors(corsOptions));
+    app.options(/.*/, cors(corsOptions));
 
     app.use((req, res, next) => {
       // console.log(`Incoming ${req.method} request to ${req.url}`);
