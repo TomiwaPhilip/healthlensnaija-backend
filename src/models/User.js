@@ -14,11 +14,12 @@ tone: { type: String, default: "formal" },
     default: "Guest" 
   },
   tier: { type: String, enum: ["guest", "verified"], default: "guest" },
-    // New fields
-    suspended: { type: Boolean, default: false },
-    lastLogin: { type: Date },
-    lastIP: { type: String },
-    failedLogins: { type: Number, default: 0 },
+  // New fields
+  suspended: { type: Boolean, default: false },
+  banned: { type: Boolean, default: false },
+  lastLogin: { type: Date },
+  lastIP: { type: String },
+  failedLogins: { type: Number, default: 0 },
   
   createdAt: { type: Date, default: Date.now },
   stories: [{ type: mongoose.Schema.Types.ObjectId, ref: "Story" }]

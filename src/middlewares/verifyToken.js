@@ -1,7 +1,8 @@
 // backend/src/middlewares/verifyToken.js
 const jwt = require("jsonwebtoken");
+const BaseUser = require("../models/User");
 
-const verifyToken = (req, res, next) => {
+const verifyToken = async (req, res, next) => {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -17,7 +18,24 @@ const verifyToken = (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = { id: decoded.id, role: decoded.role };
+    const user = await BaseUser.findById(decoded.id).select("role suspended banned");
+
+    if (!user) {
+      console.error("Authenticated user not found");
+      return res.status(401).json({ message: "User account not found" });
+    }
+
+    if (user.banned) {
+      console.warn(`Blocked banned user ${user._id}`);
+      return res.status(403).json({ message: "Account is banned" });
+    }
+
+    if (user.suspended) {
+      console.warn(`Blocked suspended user ${user._id}`);
+      return res.status(403).json({ message: "Account is suspended" });
+    }
+
+    req.user = { id: user._id.toString(), role: user.role };
     next();
   } catch (error) {
     if (error.name === "TokenExpiredError") {
