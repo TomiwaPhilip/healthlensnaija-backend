@@ -15,6 +15,14 @@ storySourcesRouter.post(
   upload.single("file"),
   controller.createSource
 );
+storySourcesRouter.post(
+  "/:storyId/sources/upsert-text",
+  controller.upsertSourceText
+);
+storySourcesRouter.post(
+  "/:storyId/sources/search",
+  controller.searchSourceText
+);
 
 const sourceRouter = express.Router();
 sourceRouter.delete("/:sourceId", controller.deleteSource);

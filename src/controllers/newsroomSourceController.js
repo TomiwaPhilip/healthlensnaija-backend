@@ -7,6 +7,27 @@ function handleError(res, error) {
   return res.status(400).json({ message: error.message });
 }
 
+function parseRecordsPayload(rawRecords) {
+  if (!rawRecords) {
+    return [];
+  }
+
+  if (Array.isArray(rawRecords)) {
+    return rawRecords;
+  }
+
+  if (typeof rawRecords === "string") {
+    try {
+      const parsed = JSON.parse(rawRecords);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+      throw new Error("records payload must be valid JSON");
+    }
+  }
+
+  return [];
+}
+
 async function listSources(req, res) {
   try {
     const sources = await sourceService.listSources(req.params.storyId);
@@ -37,8 +58,33 @@ async function deleteSource(req, res) {
   }
 }
 
+async function upsertSourceText(req, res) {
+  try {
+    const records = parseRecordsPayload(req.body.records);
+    const result = await sourceService.upsertSourceText(req.params.storyId, records);
+    res.status(202).json(result);
+  } catch (error) {
+    handleError(res, error);
+  }
+}
+
+async function searchSourceText(req, res) {
+  try {
+    const { query, topK, fields } = req.body;
+    const result = await sourceService.searchSourceText(req.params.storyId, query, {
+      topK,
+      fields,
+    });
+    res.json(result);
+  } catch (error) {
+    handleError(res, error);
+  }
+}
+
 module.exports = {
   listSources,
   createSource,
   deleteSource,
+  upsertSourceText,
+  searchSourceText,
 };
