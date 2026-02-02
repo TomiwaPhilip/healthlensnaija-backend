@@ -1,7 +1,0 @@
-
-import { Pinecone } from '@pinecone-database/pinecone';
-
-const pc = new Pinecone({
-  apiKey: '********-****-****-****-************'
-});
-const index = pc.index('quickstart');
