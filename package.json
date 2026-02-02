@@ -19,10 +19,12 @@
   "homepage": "https://github.com/TomiwaPhilip/healthlensnaija-backend#readme",
   "description": "",
   "dependencies": {
+    "@ai-sdk/openai": "^3.0.25",
     "@pinecone-database/pinecone": "^6.1.4",
     "axios": "^1.13.3",
     "bcryptjs": "^3.0.3",
     "bullmq": "^5.67.1",
+    "ai": "^6.0.67",
     "cheerio": "^1.2.0",
     "content-based-recommender": "^1.5.0",
     "cors": "^2.8.6",
