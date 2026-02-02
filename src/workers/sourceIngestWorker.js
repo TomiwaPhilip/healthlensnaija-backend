@@ -1,21 +1,19 @@
 const fs = require("fs/promises");
 const { Worker } = require("bullmq");
 const pdfParse = require("pdf-parse");
-const { chromium } = require("playwright");
 const redisConnection = require("../config/redis");
 const { SOURCE_INGEST_QUEUE } = require("../queues/sourceIngestQueue");
 const NewsroomSource = require("../models/NewsroomSource");
 const { upsertSourceText } = require("../services/newsroomSourceService");
+const {
+  extractWebContent,
+  buildRecordsFromExtract,
+  sanitizeText,
+} = require("../services/tavilyService");
 
-const SCRAPER_FORMAT = process.env.LLM_SCRAPER_FORMAT || "text";
-
-let preprocessPromise;
-function loadPreprocess() {
-  if (!preprocessPromise) {
-    preprocessPromise = import("llm-scraper/dist/preprocess.js").then((mod) => mod.preprocess);
-  }
-  return preprocessPromise;
-}
+const TAVILY_URL_CHUNK_LIMIT = Number(process.env.TAVILY_MAX_CHUNKS) || 12;
+const TAVILY_EXTRACT_TIMEOUT_SECONDS = Number(process.env.TAVILY_EXTRACT_TIMEOUT_SECONDS) || 30;
+const TAVILY_EXTRACT_DEPTH = process.env.TAVILY_EXTRACT_DEPTH || "advanced";
 
 async function cleanupUploadedFile(filePath) {
   if (!filePath) {
@@ -36,10 +34,6 @@ async function markSourceStatus(sourceId, patch = {}) {
     return null;
   }
   return NewsroomSource.findByIdAndUpdate(sourceId, patch, { new: true });
-}
-
-function sanitizeText(value = "") {
-  return value.replace(/\s+/g, " ").trim();
 }
 
 async function buildPdfRecords(filePath, sourceId) {
@@ -76,37 +70,40 @@ async function buildUrlRecords(url, sourceId) {
     throw new Error("Missing URL for scraping");
   }
 
-  const preprocess = await loadPreprocess();
-  const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage();
+  const extractResponse = await extractWebContent(url, {
+    extractDepth: TAVILY_EXTRACT_DEPTH,
+    includeFavicon: true,
+    format: "markdown",
+    timeout: TAVILY_EXTRACT_TIMEOUT_SECONDS,
+  });
 
-  try {
-    await page.goto(url, {
-      waitUntil: "networkidle",
-      timeout: Number(process.env.SCRAPER_NAV_TIMEOUT_MS) || 45000,
-    });
-
-    const processed = await preprocess(page, { format: SCRAPER_FORMAT });
-    const text = sanitizeText(processed.content || "");
-
-    if (!text) {
-      return [];
-    }
-
-    return [
-      {
-        id: `${sourceId}-url`,
-        text,
-        metadata: {
-          source_type: "url",
-          url,
-        },
-      },
-    ];
-  } finally {
-    await page.close().catch(() => {});
-    await browser.close().catch(() => {});
+  const failedResults =
+    extractResponse?.failed_results ||
+    extractResponse?.failedResults ||
+    extractResponse?.data?.failed_results ||
+    extractResponse?.data?.failedResults;
+  if (Array.isArray(failedResults) && failedResults.length) {
+    const failure = failedResults.find((item) => item.url === url) || failedResults[0];
+    throw new Error(
+      `Tavily extract failed for ${url}: ${failure?.error || "Unknown error"}`
+    );
   }
+
+  const responseResults =
+    extractResponse?.results ||
+    extractResponse?.data?.results ||
+    extractResponse?.resultsData ||
+    [];
+
+  const records = buildRecordsFromExtract({
+    url,
+    sourceId,
+    results: responseResults,
+    chunkLimit: TAVILY_URL_CHUNK_LIMIT,
+    sourceType: "url",
+  });
+
+  return records;
 }
 
 async function processJob(job) {
