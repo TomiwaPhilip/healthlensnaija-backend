@@ -15,6 +15,7 @@ storySourcesRouter.post(
   upload.single("file"),
   controller.createSource
 );
+storySourcesRouter.post("/:storyId/sources/url", controller.createUrlSource);
 storySourcesRouter.post(
   "/:storyId/sources/upsert-text",
   controller.upsertSourceText

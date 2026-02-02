@@ -1,8 +1,10 @@
 const path = require("path");
 const fs = require("fs");
+const { URL } = require("url");
 const mongoose = require("mongoose");
 const NewsroomSource = require("../models/NewsroomSource");
 const { getStoryById } = require("./newsroomStoryService");
+const { enqueueSourceIngestJob } = require("../queues/sourceIngestQueue");
 const {
   getNamespaceIndex,
   buildStoryNamespace,
@@ -12,7 +14,8 @@ const uploadsDir = path.join(__dirname, "../../uploads");
 fs.mkdirSync(uploadsDir, { recursive: true });
 
 const MAX_TEXT_RECORDS_PER_BATCH = 96; // Pinecone integrated embedding batch limit
-const TEXT_FIELD = process.env.PINECONE_TEXT_FIELD || "text";
+const TEXT_FIELD = process.env.PINECONE_TEXT_FIELD || "chunk_text";
+const SUPPORTED_PDF_TYPES = ["application/pdf", "application/x-pdf"];
 
 async function ensureStory(storyId) {
   const story = await getStoryById(storyId);
@@ -25,6 +28,49 @@ async function ensureStory(storyId) {
 async function listSources(storyId) {
   await ensureStory(storyId);
   return NewsroomSource.find({ story: storyId }).sort({ createdAt: -1 }).lean();
+}
+
+function isPdfUpload(file = {}) {
+  if (!file) {
+    return false;
+  }
+
+  if (file.mimetype && SUPPORTED_PDF_TYPES.includes(file.mimetype)) {
+    return true;
+  }
+
+  const extension = path.extname(file.originalname || file.path || "").toLowerCase();
+  return extension === ".pdf";
+}
+
+function normalizeSourceUrl(rawUrl) {
+  if (!rawUrl) {
+    throw new Error("URL is required");
+  }
+
+  try {
+    const parsed = new URL(rawUrl);
+    return parsed.toString();
+  } catch (error) {
+    throw new Error("Invalid URL provided for source");
+  }
+}
+
+async function enqueueIngestionOrFail(sourceDoc, jobPayload) {
+  try {
+    await enqueueSourceIngestJob({
+      ...jobPayload,
+      sourceId: sourceDoc._id.toString(),
+      storyId: sourceDoc.story.toString(),
+    });
+  } catch (error) {
+    await NewsroomSource.findByIdAndUpdate(sourceDoc._id, {
+      ingest_status: "failed",
+      vector_status: "failed",
+      ingest_error: error.message,
+    });
+    throw error;
+  }
 }
 
 function normalizeRecordId(storyId, record, index) {
@@ -130,11 +176,50 @@ async function createSource(storyId, file) {
     throw new Error("No file uploaded");
   }
 
+  if (!isPdfUpload(file)) {
+    throw new Error("Only PDF uploads are supported at the moment");
+  }
+
   const source = await NewsroomSource.create({
     story: storyId,
-    filename: file.originalname,
-    file_type: file.mimetype,
+    filename: file.originalname || path.basename(file.path),
+    file_type: file.mimetype || "application/pdf",
     file_url: file.path,
+    source_type: "pdf",
+    ingest_status: "queued",
+  });
+
+  await enqueueIngestionOrFail(source, {
+    type: "pdf",
+    payload: {
+      filePath: file.path,
+      filename: file.originalname,
+    },
+  });
+
+  return source.toObject();
+}
+
+async function createUrlSource(storyId, rawUrl) {
+  await ensureStory(storyId);
+  const normalizedUrl = normalizeSourceUrl(rawUrl);
+  const label = new URL(normalizedUrl);
+  const safePath = label.pathname && label.pathname !== "/" ? label.pathname.replace(/\//g, "-") : "";
+  const filename = `${label.hostname}${safePath}` || label.hostname;
+
+  const source = await NewsroomSource.create({
+    story: storyId,
+    filename,
+    file_type: "text/html",
+    file_url: normalizedUrl,
+    url: normalizedUrl,
+    source_type: "url",
+    ingest_status: "queued",
+  });
+
+  await enqueueIngestionOrFail(source, {
+    type: "url",
+    payload: { url: normalizedUrl },
   });
 
   return source.toObject();
@@ -156,6 +241,7 @@ async function deleteSource(sourceId) {
 module.exports = {
   listSources,
   createSource,
+  createUrlSource,
   deleteSource,
   upsertSourceText,
   searchSourceText,

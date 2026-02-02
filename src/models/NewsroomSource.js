@@ -11,11 +11,27 @@ const NewsroomSourceSchema = new mongoose.Schema(
     filename: { type: String, required: true },
     file_type: { type: String, default: "" },
     file_url: { type: String, required: true },
+    url: { type: String, default: "" },
+    source_type: {
+      type: String,
+      enum: ["upload", "pdf", "url"],
+      default: "upload",
+    },
     vector_status: {
       type: String,
-      enum: ["pending", "indexed", "failed"],
+      enum: ["pending", "processing", "indexed", "failed"],
       default: "pending",
     },
+    ingest_status: {
+      type: String,
+      enum: ["pending", "queued", "processing", "indexed", "failed"],
+      default: "pending",
+      index: true,
+    },
+    ingest_error: { type: String, default: "" },
+    record_count: { type: Number, default: 0 },
+    page_count: { type: Number, default: 0 },
+    last_indexed_at: { type: Date },
     uploaded_at: { type: Date, default: Date.now },
   },
   { timestamps: true }

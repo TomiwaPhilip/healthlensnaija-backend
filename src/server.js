@@ -10,6 +10,7 @@ const { storySourcesRouter, sourceRouter } = require("./routes/newsroomSourceRou
 const authRoutes = require("./routes/authRoutes");
 const userRoutes = require("./routes/userRoutes");
 const roleRoutes = require("./routes/roleRoutes");
+require("./workers/sourceIngestWorker");
 
 const app = express();
 const PORT = process.env.PORT || 5000;

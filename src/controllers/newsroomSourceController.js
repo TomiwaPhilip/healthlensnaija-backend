@@ -46,6 +46,15 @@ async function createSource(req, res) {
   }
 }
 
+async function createUrlSource(req, res) {
+  try {
+    const created = await sourceService.createUrlSource(req.params.storyId, req.body.url);
+    res.status(201).json(created);
+  } catch (error) {
+    handleError(res, error);
+  }
+}
+
 async function deleteSource(req, res) {
   try {
     const removed = await sourceService.deleteSource(req.params.sourceId);
@@ -84,6 +93,7 @@ async function searchSourceText(req, res) {
 module.exports = {
   listSources,
   createSource,
+  createUrlSource,
   deleteSource,
   upsertSourceText,
   searchSourceText,
