@@ -16,8 +16,101 @@ const DEFAULT_TEMPERATURE = 0.2;
 const DEFAULT_WEB_CHUNK_LIMIT = Number(process.env.TAVILY_AGENT_CHUNK_LIMIT) || 8;
 const DEFAULT_AGENT_EXTRACT_TIMEOUT = Number(process.env.TAVILY_AGENT_EXTRACT_TIMEOUT_SECONDS) || undefined;
 const DEFAULT_AGENT_EXTRACT_DEPTH = process.env.TAVILY_AGENT_EXTRACT_DEPTH;
+const TEXT_FIELD = process.env.PINECONE_TEXT_FIELD || "chunk_text";
+const AUTO_SOURCE_TOP_K = Number(process.env.AGENT_AUTO_SOURCE_TOP_K) || 6;
+const AUTO_WEB_RESULTS = Number(process.env.AGENT_AUTO_WEB_RESULTS) || 3;
+const ENABLE_AGENT_WEB_CONTEXT = process.env.AGENT_ENABLE_WEB_CONTEXT !== "false";
 
-function buildSystemPrompt(story, contextSummary) {
+function sanitizeSnippet(value = "", limit = 420) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, limit);
+}
+
+function summarizeSourceHits(hits = []) {
+  if (!Array.isArray(hits) || !hits.length) {
+    return "No Pinecone passages retrieved.";
+  }
+
+  return hits.slice(0, AUTO_SOURCE_TOP_K).map((hit, index) => {
+    const values = hit?.values || hit?.record || hit || {};
+    const label =
+      values.source_label ||
+      values.filename ||
+      values.url ||
+      values.source_id ||
+      hit?.id ||
+      `Source ${index + 1}`;
+    const snippet =
+      sanitizeSnippet(values[TEXT_FIELD]) ||
+      sanitizeSnippet(values.text) ||
+      sanitizeSnippet(values.content);
+    return `${index + 1}. ${label}\nSnippet: ${snippet || "[empty chunk]"}`;
+  }).join("\n\n");
+}
+
+function summarizeWebResults(results = []) {
+  if (!Array.isArray(results) || !results.length) {
+    return "No live web snippets retrieved.";
+  }
+
+  return results.slice(0, AUTO_WEB_RESULTS).map((result, index) => {
+    const title = result.title || result.url || `Web Result ${index + 1}`;
+    const snippet = sanitizeSnippet(result.content || result.raw_content || result.rawContent || "");
+    return `${index + 1}. ${title}\n${result.url || ""}\nSnippet: ${snippet || "[empty snippet]"}`;
+  }).join("\n\n");
+}
+
+async function gatherAutoContext(storyId, query) {
+  const trimmed = (query || "").trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  let sourceHits = [];
+  try {
+    const sourceSearch = await searchSourceText(storyId, trimmed, {
+      topK: AUTO_SOURCE_TOP_K,
+      fields: [TEXT_FIELD, "source_label", "url", "filename", "source_id"],
+    });
+    sourceHits = sourceSearch?.result?.hits || [];
+  } catch (error) {
+    console.warn("Auto-context Pinecone search failed", error.message);
+  }
+
+  let webResults = [];
+  if (ENABLE_AGENT_WEB_CONTEXT) {
+    try {
+      const webSearch = await searchWeb(trimmed, {
+        maxResults: AUTO_WEB_RESULTS,
+        topic: "news",
+        includeRawContent: "markdown",
+        includeAnswer: false,
+        includeFavicon: true,
+      });
+      webResults = webSearch?.results || [];
+    } catch (error) {
+      console.warn("Auto-context Tavily search failed", error.message);
+    }
+  }
+
+  const sections = [];
+  if (sourceHits.length) {
+    sections.push(`Pinecone Evidence:\n${summarizeSourceHits(sourceHits)}`);
+  }
+  if (webResults.length) {
+    sections.push(`Web Findings:\n${summarizeWebResults(webResults)}`);
+  }
+
+  if (!sections.length) {
+    return "";
+  }
+
+  return sections.join("\n\n");
+}
+
+function buildSystemPrompt(story, contextSummary, chatHistorySummary, autoContextSummary) {
   const metadata = story.metadata || {};
   const tags = Array.isArray(metadata.tags) ? metadata.tags : [];
   const sections = [
@@ -31,6 +124,7 @@ function buildSystemPrompt(story, contextSummary) {
       "Never skip `search_sources` before drafting, and cite the filename or URL for every claim.",
     ].join("\n"),
     "All saved context must stay in this story's Pinecone namespace—never propose or create alternate namespaces.",
+    "Scope Guard: Decline casual chat or requests unrelated to this investigation; politely redirect to newsroom tasks only.",
     "Never fabricate information. Every assertion must reference retrieved passages (include filename or URL and page when available). If the library lacks answers, explain what is missing and request follow-up ingestion.",
     `Story Title: ${story.title}`,
     `Status: ${story.status}`,
@@ -38,6 +132,8 @@ function buildSystemPrompt(story, contextSummary) {
     metadata.region ? `Region: ${metadata.region}` : null,
     metadata.brief ? `Story Brief: ${metadata.brief}` : null,
     "Context Bundle:\n" + (contextSummary || "No extra context provided."),
+    chatHistorySummary ? "Conversation Recap (recent turns):\n" + chatHistorySummary : null,
+    autoContextSummary ? "Retrieved Evidence (auto-search):\n" + autoContextSummary : null,
     "When data is missing, describe the gap and propose next investigative steps.",
   ].filter(Boolean);
 
@@ -173,7 +269,13 @@ function buildWebExtractTool(storyId) {
   });
 }
 
-async function generateAssistantReply({ story, prompt, contextSummary }) {
+async function generateAssistantReply({
+  story,
+  prompt,
+  contextSummary,
+  chatHistorySummary,
+  onToken,
+}) {
   if (!story) {
     throw new Error("Story context is required for agent replies");
   }
@@ -186,11 +288,12 @@ async function generateAssistantReply({ story, prompt, contextSummary }) {
   const openai = getOpenAIClient();
   const modelName = process.env.NEWSROOM_MODEL || DEFAULT_MODEL;
   const maxSteps = Number(process.env.AGENT_MAX_TOOL_STEPS) || 8;
+  const autoContextSummary = await gatherAutoContext(storyId, prompt);
 
   const result = await streamText({
     model: openai(modelName),
     temperature: DEFAULT_TEMPERATURE,
-    system: buildSystemPrompt(story, contextSummary),
+    system: buildSystemPrompt(story, contextSummary, chatHistorySummary, autoContextSummary),
     prompt,
     tools: {
       search_sources: buildSearchTool(storyId),
@@ -202,7 +305,13 @@ async function generateAssistantReply({ story, prompt, contextSummary }) {
 
   let text = "";
   for await (const delta of result.textStream) {
+    if (!delta) {
+      continue;
+    }
     text += delta;
+    if (typeof onToken === "function") {
+      await onToken(delta);
+    }
   }
 
   return {
