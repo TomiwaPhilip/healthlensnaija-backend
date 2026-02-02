@@ -1,51 +1,53 @@
 const path = require("path");
 const fs = require("fs");
-const { store, generateId } = require("../utils/newsroomStore");
+const mongoose = require("mongoose");
+const NewsroomSource = require("../models/NewsroomSource");
 const { getStoryById } = require("./newsroomStoryService");
 
 const uploadsDir = path.join(__dirname, "../../uploads");
 fs.mkdirSync(uploadsDir, { recursive: true });
 
-function listSources(storyId) {
-  if (!getStoryById(storyId)) {
+async function ensureStory(storyId) {
+  const story = await getStoryById(storyId);
+  if (!story) {
     throw new Error("Story not found");
   }
-
-  return store.sources.filter((source) => source.story_id === storyId);
+  return story;
 }
 
-function createSource(storyId, file) {
-  if (!getStoryById(storyId)) {
-    throw new Error("Story not found");
-  }
+async function listSources(storyId) {
+  await ensureStory(storyId);
+  return NewsroomSource.find({ story: storyId }).sort({ createdAt: -1 }).lean();
+}
+
+async function createSource(storyId, file) {
+  await ensureStory(storyId);
 
   if (!file) {
     throw new Error("No file uploaded");
   }
 
-  const now = new Date().toISOString();
-  const source = {
-    id: generateId("source"),
-    story_id: storyId,
+  const source = await NewsroomSource.create({
+    story: storyId,
     filename: file.originalname,
     file_type: file.mimetype,
-    file_url: `/uploads/${path.basename(file.path)}`,
-    vector_status: "pending",
-    uploaded_at: now,
-  };
+    file_url: file.path,
+  });
 
-  store.sources.push(source);
-  return source;
+  return source.toObject();
 }
 
-function deleteSource(sourceId) {
-  const index = store.sources.findIndex((source) => source.id === sourceId);
-  if (index === -1) {
+async function deleteSource(sourceId) {
+  if (!mongoose.Types.ObjectId.isValid(sourceId)) {
     return null;
   }
 
-  const [removed] = store.sources.splice(index, 1);
-  return removed;
+  const source = await NewsroomSource.findByIdAndDelete(sourceId);
+  if (!source) {
+    return null;
+  }
+
+  return source.toObject();
 }
 
 module.exports = {

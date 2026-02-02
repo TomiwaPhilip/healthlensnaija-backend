@@ -1,18 +1,9 @@
-const { store, generateId } = require("../utils/newsroomStore");
-const { getStoryById, refreshStoryPreview } = require("./newsroomStoryService");
-
-function getChatHistory(storyId, limit = 50) {
-  if (!getStoryById(storyId)) {
-    throw new Error("Story not found");
-  }
-
-  const sanitizedLimit = Number.isFinite(limit) && limit > 0 ? limit : 50;
-
-  return store.messages
-    .filter((message) => message.story_id === storyId)
-    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
-    .slice(-sanitizedLimit);
-}
+const mongoose = require("mongoose");
+const NewsroomMessage = require("../models/NewsroomMessage");
+const {
+  getStoryById,
+  refreshStoryPreview,
+} = require("./newsroomStoryService");
 
 function buildAssistantReply(userContent) {
   const base =
@@ -20,37 +11,59 @@ function buildAssistantReply(userContent) {
   return `${base} You said: ${userContent.slice(0, 200)}...`;
 }
 
-function sendMessage(storyId, content) {
-  const story = getStoryById(storyId);
+async function ensureStoryExists(storyId) {
+  const story = await getStoryById(storyId);
   if (!story) {
     throw new Error("Story not found");
   }
+  return story;
+}
 
+async function getChatHistory(storyId, limit = 50) {
+  if (!mongoose.Types.ObjectId.isValid(storyId)) {
+    throw new Error("Story not found");
+  }
+  await ensureStoryExists(storyId);
+
+  const sanitizedLimit = Number.isFinite(limit) && limit > 0 ? limit : 50;
+  return NewsroomMessage.find({ story: storyId })
+    .sort({ timestamp: 1 })
+    .limit(sanitizedLimit)
+    .lean();
+}
+
+async function sendMessage(storyId, content) {
   if (!content || !content.trim()) {
     throw new Error("Message content is required");
   }
 
-  const userTimestamp = new Date().toISOString();
-  const userMessage = {
-    id: generateId("msg"),
-    story_id: storyId,
+  await ensureStoryExists(storyId);
+
+  const userPayload = {
+    story: storyId,
     role: "user",
     content: content.trim(),
-    timestamp: userTimestamp,
+    timestamp: new Date(),
   };
 
-  const assistantMessage = {
-    id: generateId("msg"),
-    story_id: storyId,
+  const assistantPayload = {
+    story: storyId,
     role: "assistant",
     content: buildAssistantReply(content.trim()),
-    timestamp: new Date().toISOString(),
+    timestamp: new Date(),
   };
 
-  store.messages.push(userMessage, assistantMessage);
-  refreshStoryPreview(storyId);
+  const [userMessage, assistantMessage] = await NewsroomMessage.insertMany(
+    [userPayload, assistantPayload],
+    { ordered: true }
+  );
 
-  return { userMessage, assistantMessage };
+  await refreshStoryPreview(storyId);
+
+  return {
+    userMessage: userMessage.toObject(),
+    assistantMessage: assistantMessage.toObject(),
+  };
 }
 
 module.exports = {

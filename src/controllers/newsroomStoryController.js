@@ -8,7 +8,7 @@ function handleError(res, error) {
 
 async function listStories(req, res) {
   try {
-    const stories = storyService.listStories(req.query.q || "");
+    const stories = await storyService.listStories(req.query.q || "");
     res.json(stories);
   } catch (error) {
     console.error("listStories error", error);
@@ -18,7 +18,7 @@ async function listStories(req, res) {
 
 async function createStory(req, res) {
   try {
-    const story = storyService.createStory(req.body);
+    const story = await storyService.createStory(req.body);
     res.status(201).json(story);
   } catch (error) {
     handleError(res, error);
@@ -27,7 +27,7 @@ async function createStory(req, res) {
 
 async function getStory(req, res) {
   try {
-    const story = storyService.getStoryById(req.params.storyId);
+    const story = await storyService.getStoryWithRelations(req.params.storyId);
     if (!story) {
       return res.status(404).json({ message: "Story not found" });
     }
@@ -40,7 +40,7 @@ async function getStory(req, res) {
 
 async function deleteStory(req, res) {
   try {
-    const deleted = storyService.deleteStory(req.params.storyId);
+    const deleted = await storyService.deleteStory(req.params.storyId);
     if (!deleted) {
       return res.status(404).json({ message: "Story not found" });
     }

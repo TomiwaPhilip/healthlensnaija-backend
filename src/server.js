@@ -1,6 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
+const mongoose = require("mongoose");
 
 const storyRoutes = require("./routes/newsroomStoryRoutes");
 const chatRoutes = require("./routes/newsroomChatRoutes");
@@ -46,6 +47,19 @@ app.use((err, req, res, next) => {
   res.status(500).json({ message: "Internal server error" });
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Newsroom backend running on port ${PORT}`);
-});
+async function startServer() {
+  try {
+    const mongoUri = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/healthlens";
+    await mongoose.connect(mongoUri);
+    console.log("✅ MongoDB connected for Newsroom backend");
+
+    app.listen(PORT, () => {
+      console.log(`🚀 Newsroom backend running on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error("❌ Failed to start server", error);
+    process.exit(1);
+  }
+}
+
+startServer();

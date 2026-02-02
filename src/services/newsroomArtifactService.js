@@ -1,45 +1,46 @@
-const { store, generateId } = require("../utils/newsroomStore");
+const mongoose = require("mongoose");
+const NewsroomArtifact = require("../models/NewsroomArtifact");
 const { getStoryById, refreshStoryPreview } = require("./newsroomStoryService");
 
-function listArtifacts(storyId) {
-  if (!getStoryById(storyId)) {
+async function ensureStory(storyId) {
+  const story = await getStoryById(storyId);
+  if (!story) {
     throw new Error("Story not found");
   }
-
-  return store.artifacts.filter((artifact) => artifact.story_id === storyId);
+  return story;
 }
 
-function createArtifact(storyId, payload = {}) {
-  if (!getStoryById(storyId)) {
-    throw new Error("Story not found");
-  }
+async function listArtifacts(storyId) {
+  await ensureStory(storyId);
+  return NewsroomArtifact.find({ story: storyId }).sort({ createdAt: -1 }).lean();
+}
 
+async function createArtifact(storyId, payload = {}) {
+  await ensureStory(storyId);
   if (!payload.title || !payload.content) {
     throw new Error("Artifact title and content are required");
   }
 
-  const now = new Date().toISOString();
-  const artifact = {
-    id: generateId("artifact"),
-    story_id: storyId,
+  const artifact = await NewsroomArtifact.create({
+    story: storyId,
     title: payload.title.trim(),
     type: payload.type || "story",
     content: payload.content,
-    created_at: now,
-    updated_at: now,
-  };
+  });
 
-  store.artifacts.push(artifact);
-  refreshStoryPreview(storyId);
-  return artifact;
+  await refreshStoryPreview(storyId);
+  return artifact.toObject();
 }
 
-function getArtifactById(artifactId) {
-  return store.artifacts.find((artifact) => artifact.id === artifactId);
+async function getArtifactById(artifactId) {
+  if (!mongoose.Types.ObjectId.isValid(artifactId)) {
+    return null;
+  }
+  return NewsroomArtifact.findById(artifactId);
 }
 
-function updateArtifact(artifactId, payload = {}) {
-  const artifact = getArtifactById(artifactId);
+async function updateArtifact(artifactId, payload = {}) {
+  const artifact = await getArtifactById(artifactId);
   if (!artifact) {
     throw new Error("Artifact not found");
   }
@@ -54,24 +55,24 @@ function updateArtifact(artifactId, payload = {}) {
     artifact.content = payload.content;
   }
 
-  artifact.updated_at = new Date().toISOString();
-  refreshStoryPreview(artifact.story_id);
-  return artifact;
+  await artifact.save();
+  await refreshStoryPreview(artifact.story.toString());
+  return artifact.toObject();
 }
 
-function deleteArtifact(artifactId) {
-  const index = store.artifacts.findIndex((artifact) => artifact.id === artifactId);
-  if (index === -1) {
+async function deleteArtifact(artifactId) {
+  const artifact = await getArtifactById(artifactId);
+  if (!artifact) {
     return null;
   }
 
-  const [removed] = store.artifacts.splice(index, 1);
-  refreshStoryPreview(removed.story_id);
-  return removed;
+  await artifact.deleteOne();
+  await refreshStoryPreview(artifact.story.toString());
+  return artifact.toObject();
 }
 
-function exportArtifact(artifactId, format = "pdf") {
-  const artifact = getArtifactById(artifactId);
+async function exportArtifact(artifactId, format = "pdf") {
+  const artifact = await getArtifactById(artifactId);
   if (!artifact) {
     throw new Error("Artifact not found");
   }
@@ -80,7 +81,9 @@ function exportArtifact(artifactId, format = "pdf") {
   return {
     filename: `${artifact.title.replace(/\s+/g, "_")}.${normalizedFormat}`,
     mimeType:
-      normalizedFormat === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      normalizedFormat === "pdf"
+        ? "application/pdf"
+        : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     content: Buffer.from(artifact.content, "utf8"),
   };
 }

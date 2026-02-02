@@ -10,7 +10,7 @@ function handleError(res, error) {
 async function getChatHistory(req, res) {
   try {
     const limit = parseInt(req.query.limit, 10);
-    const history = chatService.getChatHistory(req.params.storyId, limit);
+    const history = await chatService.getChatHistory(req.params.storyId, limit);
     res.json(history);
   } catch (error) {
     handleError(res, error);
@@ -20,7 +20,7 @@ async function getChatHistory(req, res) {
 async function sendMessage(req, res) {
   try {
     const { message } = req.body;
-    const result = chatService.sendMessage(req.params.storyId, message);
+    const result = await chatService.sendMessage(req.params.storyId, message);
     res.status(201).json(result);
   } catch (error) {
     handleError(res, error);

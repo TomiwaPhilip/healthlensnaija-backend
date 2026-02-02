@@ -1,4 +1,8 @@
-const { store, generateId } = require("../utils/newsroomStore");
+const mongoose = require("mongoose");
+const NewsroomStory = require("../models/NewsroomStory");
+const NewsroomArtifact = require("../models/NewsroomArtifact");
+const NewsroomMessage = require("../models/NewsroomMessage");
+const NewsroomSource = require("../models/NewsroomSource");
 
 function normalizeTags(rawTags) {
   if (!Array.isArray(rawTags)) {
@@ -7,31 +11,32 @@ function normalizeTags(rawTags) {
   return rawTags.filter(Boolean);
 }
 
-function listStories(searchTerm = "") {
-  const query = searchTerm.trim().toLowerCase();
-  const stories = query
-    ? store.stories.filter((story) => {
-        const matchesTitle = story.title.toLowerCase().includes(query);
-        const matchesTags = story.metadata.tags.some((tag) =>
-          tag.toLowerCase().includes(query)
-        );
-        return matchesTitle || matchesTags;
-      })
-    : store.stories;
+function buildSearchFilter(searchTerm = "") {
+  const trimmed = searchTerm.trim();
+  if (!trimmed) {
+    return {};
+  }
 
-  return stories.slice().sort((a, b) => {
-    return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
-  });
+  const regex = new RegExp(trimmed, "i");
+  return {
+    $or: [{ title: regex }, { "metadata.tags": regex }],
+  };
 }
 
-function createStory(payload = {}) {
+async function listStories(searchTerm = "") {
+  const filter = buildSearchFilter(searchTerm);
+  const stories = await NewsroomStory.find(filter)
+    .sort({ updatedAt: -1 })
+    .lean();
+  return stories;
+}
+
+async function createStory(payload = {}) {
   if (!payload.title || !payload.title.trim()) {
     throw new Error("Title is required to start a story workspace");
   }
 
-  const now = new Date().toISOString();
-  const story = {
-    id: generateId("story"),
+  const story = await NewsroomStory.create({
     title: payload.title.trim(),
     status: payload.status || "draft",
     preview_text: payload.preview_text || "",
@@ -39,52 +44,83 @@ function createStory(payload = {}) {
       tags: normalizeTags(payload?.metadata?.tags),
       region: payload?.metadata?.region || "",
     },
-    created_at: now,
-    updated_at: now,
-  };
+  });
 
-  store.stories.push(story);
-  return story;
+  return story.toObject();
 }
 
-function getStoryById(storyId) {
-  return store.stories.find((story) => story.id === storyId);
+async function getStoryById(storyId) {
+  if (!mongoose.Types.ObjectId.isValid(storyId)) {
+    return null;
+  }
+  return NewsroomStory.findById(storyId);
 }
 
-function deleteStory(storyId) {
-  const index = store.stories.findIndex((story) => story.id === storyId);
-  if (index === -1) {
+async function getStoryWithRelations(storyId) {
+  if (!mongoose.Types.ObjectId.isValid(storyId)) {
     return null;
   }
 
-  store.stories.splice(index, 1);
-  store.messages = store.messages.filter((msg) => msg.story_id !== storyId);
-  store.artifacts = store.artifacts.filter((artifact) => artifact.story_id !== storyId);
-  store.sources = store.sources.filter((source) => source.story_id !== storyId);
-  return true;
+  const story = await NewsroomStory.findById(storyId).lean();
+  if (!story) {
+    return null;
+  }
+
+  const [artifacts, chat, sources] = await Promise.all([
+    NewsroomArtifact.find({ story: storyId }).sort({ createdAt: -1 }).lean(),
+    NewsroomMessage.find({ story: storyId })
+      .sort({ timestamp: 1 })
+      .lean(),
+    NewsroomSource.find({ story: storyId }).sort({ createdAt: -1 }).lean(),
+  ]);
+
+  return { ...story, artifacts, chat, sources };
 }
 
-function refreshStoryPreview(storyId) {
-  const story = getStoryById(storyId);
-  if (!story) return;
+async function deleteStory(storyId) {
+  if (!mongoose.Types.ObjectId.isValid(storyId)) {
+    return null;
+  }
 
-  const newestArtifact = store.artifacts
-    .filter((artifact) => artifact.story_id === storyId)
-    .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))[0];
+  const story = await NewsroomStory.findByIdAndDelete(storyId);
+  if (!story) {
+    return null;
+  }
 
-  const newestMessage = store.messages
-    .filter((msg) => msg.story_id === storyId)
-    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
+  await Promise.all([
+    NewsroomArtifact.deleteMany({ story: storyId }),
+    NewsroomMessage.deleteMany({ story: storyId }),
+    NewsroomSource.deleteMany({ story: storyId }),
+  ]);
 
-  const previewSource = newestArtifact?.content || newestMessage?.content || "";
-  story.preview_text = previewSource.slice(0, 280);
-  story.updated_at = new Date().toISOString();
+  return story;
+}
+
+async function refreshStoryPreview(storyId) {
+  if (!mongoose.Types.ObjectId.isValid(storyId)) {
+    return;
+  }
+
+  const [latestArtifact, latestMessage] = await Promise.all([
+    NewsroomArtifact.findOne({ story: storyId })
+      .sort({ updatedAt: -1 })
+      .lean(),
+    NewsroomMessage.findOne({ story: storyId })
+      .sort({ timestamp: -1 })
+      .lean(),
+  ]);
+
+  const previewSource = latestArtifact?.content || latestMessage?.content || "";
+  await NewsroomStory.findByIdAndUpdate(storyId, {
+    preview_text: previewSource.slice(0, 280),
+  });
 }
 
 module.exports = {
   listStories,
   createStory,
   getStoryById,
+  getStoryWithRelations,
   deleteStory,
   refreshStoryPreview,
 };

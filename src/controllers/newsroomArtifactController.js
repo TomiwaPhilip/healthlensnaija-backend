@@ -9,7 +9,7 @@ function handleError(res, error) {
 
 async function listArtifacts(req, res) {
   try {
-    const artifacts = artifactService.listArtifacts(req.params.storyId);
+    const artifacts = await artifactService.listArtifacts(req.params.storyId);
     res.json(artifacts);
   } catch (error) {
     handleError(res, error);
@@ -18,7 +18,7 @@ async function listArtifacts(req, res) {
 
 async function createArtifact(req, res) {
   try {
-    const artifact = artifactService.createArtifact(req.params.storyId, req.body);
+    const artifact = await artifactService.createArtifact(req.params.storyId, req.body);
     res.status(201).json(artifact);
   } catch (error) {
     handleError(res, error);
@@ -27,7 +27,7 @@ async function createArtifact(req, res) {
 
 async function updateArtifact(req, res) {
   try {
-    const updated = artifactService.updateArtifact(req.params.artifactId, req.body);
+    const updated = await artifactService.updateArtifact(req.params.artifactId, req.body);
     res.json(updated);
   } catch (error) {
     handleError(res, error);
@@ -36,7 +36,7 @@ async function updateArtifact(req, res) {
 
 async function deleteArtifact(req, res) {
   try {
-    const removed = artifactService.deleteArtifact(req.params.artifactId);
+    const removed = await artifactService.deleteArtifact(req.params.artifactId);
     if (!removed) {
       return res.status(404).json({ message: "Artifact not found" });
     }
@@ -49,9 +49,15 @@ async function deleteArtifact(req, res) {
 async function exportArtifact(req, res) {
   try {
     const format = req.body?.format || "pdf";
-    const resource = artifactService.exportArtifact(req.params.artifactId, format);
+    const resource = await artifactService.exportArtifact(
+      req.params.artifactId,
+      format
+    );
     res.setHeader("Content-Type", resource.mimeType);
-    res.setHeader("Content-Disposition", `attachment; filename="${resource.filename}"`);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${resource.filename}"`
+    );
     res.send(resource.content);
   } catch (error) {
     handleError(res, error);
