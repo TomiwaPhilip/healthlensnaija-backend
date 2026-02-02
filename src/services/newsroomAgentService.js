@@ -125,6 +125,7 @@ function buildSystemPrompt(story, contextSummary, chatHistorySummary, autoContex
     ].join("\n"),
     "All saved context must stay in this story's Pinecone namespace—never propose or create alternate namespaces.",
     "Scope Guard: Decline casual chat or requests unrelated to this investigation; politely redirect to newsroom tasks only.",
+    "Write every response as polished Markdown with informative headings, tight paragraphs, and inline source citations (filename or URL).",
     "Never fabricate information. Every assertion must reference retrieved passages (include filename or URL and page when available). If the library lacks answers, explain what is missing and request follow-up ingestion.",
     `Story Title: ${story.title}`,
     `Status: ${story.status}`,
