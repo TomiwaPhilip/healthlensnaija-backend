@@ -17,6 +17,20 @@ function loadPreprocess() {
   return preprocessPromise;
 }
 
+async function cleanupUploadedFile(filePath) {
+  if (!filePath) {
+    return;
+  }
+
+  try {
+    await fs.unlink(filePath);
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      console.warn("Failed to delete uploaded file", filePath, error.message);
+    }
+  }
+}
+
 async function markSourceStatus(sourceId, patch = {}) {
   if (!sourceId) {
     return null;
@@ -108,7 +122,9 @@ async function processJob(job) {
   });
 
   let records = [];
+  let originalFilePath = null;
   if (type === "pdf") {
+    originalFilePath = payload.filePath;
     records = await buildPdfRecords(payload.filePath, sourceId);
   } else if (type === "url") {
     records = await buildUrlRecords(payload.url, sourceId);
@@ -130,6 +146,10 @@ async function processJob(job) {
     ingest_error: "",
     last_indexed_at: new Date(),
   });
+
+  if (type === "pdf") {
+    await cleanupUploadedFile(originalFilePath);
+  }
 
   return { recordCount, processedRecords: records.length };
 }
