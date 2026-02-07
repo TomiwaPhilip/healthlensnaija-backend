@@ -1,0 +1,230 @@
+{
+  "groups": [
+    {
+      "group_id": 237512,
+      "name": "Cholera",
+      "keywords": [
+        {
+          "id": 6710892,
+          "name": "Cholera"
+        }
+      ]
+    },
+    {
+      "group_id": 237512,
+      "name": "ODA and foreign aid",
+      "keywords": [
+        {
+          "id": 6743469,
+          "name": "Official Development Assistance"
+        },
+        {
+          "id": 6743469,
+          "name": "ODA"
+        },
+        {
+          "id": 6743469,
+          "name": "Foreign aid"
+        },
+        {
+          "id": 6743469,
+          "name": "Donor funding"
+        },
+        {
+          "id": 6743469,
+          "name": "Development assistance"
+        },
+        {
+          "id": 6743469,
+          "name": "External assistance"
+        },
+        {
+          "id": 6743469,
+          "name": "Bilateral aid"
+        },
+        {
+          "id": 6743469,
+          "name": "Multilateral aid"
+        },
+        {
+          "id": 6743469,
+          "name": "Development partners"
+        },
+        {
+          "id": 6743469,
+          "name": "international aid"
+        }
+      ]
+    },
+    {
+      "group_id": 237512,
+      "name": "family planning ",
+      "keywords": [
+        {
+          "id": 6741669,
+          "name": "Family planning"
+        },
+        {
+          "id": 6741669,
+          "name": "Birth control"
+        },
+        {
+          "id": 6741669,
+          "name": "Contraception"
+        },
+        {
+          "id": 6741669,
+          "name": "Reproductive health"
+        },
+        {
+          "id": 6741669,
+          "name": "Sexual health"
+        },
+        {
+          "id": 6741669,
+          "name": "FP"
+        }
+      ]
+    },
+    {
+      "group_id": 237512,
+      "name": "ODA and foreign aid suspension in Africa",
+      "keywords": [
+        {
+          "id": 6743480,
+          "name": "Official Development Assistance"
+        },
+        {
+          "id": 6743480,
+          "name": "ODA"
+        },
+        {
+          "id": 6743480,
+          "name": "Foreign aid"
+        },
+        {
+          "id": 6743480,
+          "name": "Donor funding"
+        },
+        {
+          "id": 6743480,
+          "name": "Development assistance"
+        },
+        {
+          "id": 6743480,
+          "name": "External assistance"
+        },
+        {
+          "id": 6743480,
+          "name": "Bilateral aid"
+        },
+        {
+          "id": 6743480,
+          "name": "Multilateral aid"
+        },
+        {
+          "id": 6743480,
+          "name": "Development partners"
+        },
+        {
+          "id": 6743480,
+          "name": "International aid"
+        }
+      ]
+    },
+    {
+      "group_id": 237512,
+      "name": "AMR",
+      "keywords": [
+        {
+          "id": 6745559,
+          "name": "antimicrobial resistance"
+        },
+        {
+          "id": 6745559,
+          "name": "antibiotic resistance"
+        },
+        {
+          "id": 6745559,
+          "name": "drug resistance"
+        },
+        {
+          "id": 6745559,
+          "name": "superbugs"
+        },
+        {
+          "id": 6745559,
+          "name": "AMR"
+        },
+        {
+          "id": 6745559,
+          "name": "resistant infections"
+        },
+        {
+          "id": 6745559,
+          "name": "resistance to antibiotics"
+        },
+        {
+          "id": 6745559,
+          "name": "rational use of antibiotics"
+        },
+        {
+          "id": 6745559,
+          "name": "self medication"
+        },
+        {
+          "id": 6745559,
+          "name": "self medication of antibiotics"
+        }
+      ]
+    },
+    {
+      "group_id": 237512,
+      "name": "Lassa fever",
+      "keywords": [
+        {
+          "id": 6748550,
+          "name": "lassa"
+        },
+        {
+          "id": 6748550,
+          "name": "pandemic preparedness"
+        },
+        {
+          "id": 6748550,
+          "name": "health security"
+        },
+        {
+          "id": 6748550,
+          "name": "Mpox"
+        }
+      ]
+    },
+    {
+      "group_id": 237512,
+      "name": "Dengue",
+      "keywords": [
+        {
+          "id": 6753280,
+          "name": "Dengue"
+        },
+        {
+          "id": 6753280,
+          "name": "High fever"
+        },
+        {
+          "id": 6753280,
+          "name": "Pain behind the eye"
+        },
+        {
+          "id": 6753280,
+          "name": "Headache"
+        },
+        {
+          "id": 6753280,
+          "name": "Rash"
+        }
+      ]
+    }
+  ]
+}

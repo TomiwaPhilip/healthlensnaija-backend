@@ -10,6 +10,7 @@ const {
   buildRecordsFromExtract,
 } = require("./tavilyService");
 const { getOpenAIClient } = require("./aiClient");
+const { buildDetermContextSummary } = require("../utils/determ");
 
 const DEFAULT_MODEL = "gpt-5-mini-2025-08-07";
 const DEFAULT_TEMPERATURE = 0.2;
@@ -95,12 +96,22 @@ async function gatherAutoContext(storyId, query) {
     }
   }
 
+  let determSummary = "";
+  try {
+    determSummary = await buildDetermContextSummary(trimmed);
+  } catch (error) {
+    console.warn("Auto-context Determ fetch failed", error.message);
+  }
+
   const sections = [];
   if (sourceHits.length) {
     sections.push(`Pinecone Evidence:\n${summarizeSourceHits(sourceHits)}`);
   }
   if (webResults.length) {
     sections.push(`Web Findings:\n${summarizeWebResults(webResults)}`);
+  }
+  if (determSummary) {
+    sections.push(`Determ Articles:\n${determSummary}`);
   }
 
   if (!sections.length) {
