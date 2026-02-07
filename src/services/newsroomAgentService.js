@@ -11,6 +11,7 @@ const {
 } = require("./tavilyService");
 const { getOpenAIClient } = require("./aiClient");
 const { buildDetermContextSummary } = require("../utils/determ");
+const { getTrustedDomains } = require("../utils/trustedWebsites");
 
 const DEFAULT_MODEL = "gpt-5-mini-2025-08-07";
 const DEFAULT_TEMPERATURE = 0.2;
@@ -21,6 +22,7 @@ const TEXT_FIELD = process.env.PINECONE_TEXT_FIELD || "chunk_text";
 const AUTO_SOURCE_TOP_K = Number(process.env.AGENT_AUTO_SOURCE_TOP_K) || 6;
 const AUTO_WEB_RESULTS = Number(process.env.AGENT_AUTO_WEB_RESULTS) || 3;
 const ENABLE_AGENT_WEB_CONTEXT = process.env.AGENT_ENABLE_WEB_CONTEXT !== "false";
+const TRUSTED_DOMAINS = getTrustedDomains();
 
 function sanitizeSnippet(value = "", limit = 420) {
   return String(value || "")
@@ -63,6 +65,28 @@ function summarizeWebResults(results = []) {
   }).join("\n\n");
 }
 
+async function prioritizedWebSearch(query, options = {}) {
+  const hasCustomDomains = Array.isArray(options.includeDomains) && options.includeDomains.length;
+  if (!TRUSTED_DOMAINS.length || hasCustomDomains) {
+    return searchWeb(query, options);
+  }
+
+  try {
+    const trustedResponse = await searchWeb(query, {
+      ...options,
+      includeDomains: TRUSTED_DOMAINS,
+    });
+
+    if (trustedResponse?.results?.length) {
+      return trustedResponse;
+    }
+  } catch (error) {
+    console.warn("Trusted-domain Tavily search failed", error.message);
+  }
+
+  return searchWeb(query, options);
+}
+
 async function gatherAutoContext(storyId, query) {
   const trimmed = (query || "").trim();
   if (!trimmed) {
@@ -83,7 +107,7 @@ async function gatherAutoContext(storyId, query) {
   let webResults = [];
   if (ENABLE_AGENT_WEB_CONTEXT) {
     try {
-      const webSearch = await searchWeb(trimmed, {
+      const webSearch = await prioritizedWebSearch(trimmed, {
         maxResults: AUTO_WEB_RESULTS,
         topic: "news",
         includeRawContent: "markdown",
@@ -130,7 +154,7 @@ function buildSystemPrompt(story, contextSummary, chatHistorySummary, autoContex
     [
       "TOOLS (use in order):",
       "1. `search_sources` — query the Pinecone namespace for ground-truth quotes and metadata.",
-      "2. `search_web` — expand the search with Tavily when local sources are thin or time-sensitive.",
+      "2. `search_web` — expand the search with Tavily when local sources are thin or time-sensitive. Always ping the newsroom's verified domains first (see validWebsites.json) before widening the query.",
       "3. `extract_web_context` — fetch a specific URL via Tavily and set `upsert: true` when the newsroom needs that source indexed.",
       "Never skip `search_sources` before drafting, and cite the filename or URL for every claim.",
     ].join("\n"),
@@ -179,7 +203,7 @@ function buildSearchTool(storyId) {
 function buildWebSearchTool() {
   return tool({
     description:
-      "Reach beyond the story corpus with Tavily search. Use it when Pinecone lacks up-to-date or corroborating information.",
+      "Reach beyond the story corpus with Tavily search. Use it when Pinecone lacks up-to-date or corroborating information. The agent automatically prioritizes the newsroom's verified Nigerian health/governance domains before general web search.",
     parameters: z.object({
       query: z.string().min(3, "Query text is required"),
       searchDepth: z.enum(["advanced", "basic", "fast", "ultra-fast"]).optional(),
@@ -188,7 +212,7 @@ function buildWebSearchTool() {
       timeRange: z.enum(["day", "week", "month", "year", "d", "w", "m", "y"]).optional(),
     }),
     execute: async ({ query, searchDepth, maxResults, topic, timeRange }) => {
-      const response = await searchWeb(query, {
+      const baseOptions = {
         searchDepth,
         maxResults,
         topic,
@@ -196,7 +220,8 @@ function buildWebSearchTool() {
         includeAnswer: false,
         includeRawContent: false,
         includeUsage: true,
-      });
+      };
+      const response = await prioritizedWebSearch(query, baseOptions);
       return response;
     },
   });

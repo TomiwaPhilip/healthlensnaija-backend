@@ -1,0 +1,100 @@
+[
+  {
+    "name": "Federal Ministry of Health and Social Welfare",
+    "urls": ["https://health.gov.ng/"]
+  },
+  {
+    "name": "Nigeria Centre for Disease Control (NCDC)",
+    "urls": ["https://ncdc.gov.ng/"]
+  },
+  {
+    "name": "National Primary Health Care Development Agency (NPHCDA)",
+    "urls": ["https://www.nphcda.gov.ng/"]
+  },
+  {
+    "name": "National Health Insurance Authority (NHIA)",
+    "urls": ["https://www.nhia.gov.ng/"]
+  },
+  {
+    "name": "Sector-Wide Approach Coordination Office",
+    "urls": ["https://www.swap.gov.ng/"]
+  },
+  {
+    "name": "Presidential Initiative on Unlocking the Healthcare Value Chain",
+    "urls": ["https://pvac.gov.ng/"]
+  },
+  {
+    "name": "National Population Commission (NPC)",
+    "urls": ["https://nationalpopulation.gov.ng/"]
+  },
+  {
+    "name": "Demographic and Health Survey (Nigeria)",
+    "urls": ["https://dhsprogram.com/countries/Country-Main.cfm?ctry_id=30"]
+  },
+  {
+    "name": "Multiple Indicator Cluster Survey (MICS) (Nigeria)",
+    "urls": ["https://mics.unicef.org/country-profiles/nigeria/4131"]
+  },
+  {
+    "name": "Institute for Health Metrics & Evaluation (Nigeria)",
+    "urls": ["https://www.healthdata.org/research-analysis/health-by-location/profiles/nigeria"]
+  },
+  {
+    "name": "World Bank (Nigeria)",
+    "urls": ["https://data.worldbank.org/country/nigeria"]
+  },
+  {
+    "name": "World Health Organization (WHO) (Nigeria)",
+    "urls": [
+      "https://www.who.int/countries/nga",
+      "https://data.who.int/countries/566"
+    ]
+  },
+  {
+    "name": "UNICEF Nigeria",
+    "urls": ["https://www.unicef.org/nigeria/"]
+  },
+  {
+    "name": "National Malaria Elimination Programme (NMEP)",
+    "urls": ["https://nigeriamalaria.org/"]
+  },
+  {
+    "name": "National Agency for the Control of AIDS (NACA)",
+    "urls": ["https://naca.gov.ng/"]
+  },
+  {
+    "name": "National AIDS, Viral Hepatitis and STIs Control Programme (NASCP)",
+    "urls": ["https://nascp.gov.ng/"]
+  },
+  {
+    "name": "National Agency for Food & Drug Administration & Control (NAFDAC)",
+    "urls": ["https://www.nafdac.gov.ng/"]
+  },
+  {
+    "name": "Nigerian Institute of Medical Research (NIMR)",
+    "urls": ["https://nimr.gov.ng/"]
+  },
+  {
+    "name": "Global Health Data Exchange (GHDx) (Nigeria)",
+    "urls": ["https://ghdx.healthdata.org/geography/nigeria"]
+  },
+  {
+    "name": "Humanitarian Data Exchange (HDX) (Nigeria datasets)",
+    "urls": [
+      "https://data.humdata.org/dataset/world-bank-climate-change-indicators-for-nigeria",
+      "https://data.humdata.org/dataset/world-bank-health-indicators-for-nigeria"
+    ]
+  },
+  {
+    "name": "ReliefWeb (Nigeria)",
+    "urls": ["https://reliefweb.int/country/nga"]
+  },
+  {
+    "name": "National Council on Climate Change",
+    "urls": ["https://climatecouncil.gov.ng/"]
+  },
+  {
+    "name": "Nigeria Health Watch",
+    "urls": ["https://nigeriahealthwatch.com/"]
+  }
+]
