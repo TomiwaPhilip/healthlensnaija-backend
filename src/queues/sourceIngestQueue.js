@@ -1,4 +1,4 @@
-const { Queue, QueueScheduler } = require("bullmq");
+const { Queue } = require("bullmq");
 const redisConnection = require("../config/redis");
 
 const SOURCE_INGEST_QUEUE = process.env.SOURCE_INGEST_QUEUE || "newsroom-source-ingest";
@@ -16,14 +16,6 @@ const defaultJobOptions = {
 const sourceIngestQueue = new Queue(SOURCE_INGEST_QUEUE, {
   connection: redisConnection,
   defaultJobOptions,
-});
-
-const scheduler = new QueueScheduler(SOURCE_INGEST_QUEUE, {
-  connection: redisConnection,
-});
-
-scheduler.waitUntilReady().catch((error) => {
-  console.error("Source ingest queue scheduler failed to start", error);
 });
 
 async function enqueueSourceIngestJob(jobPayload = {}) {
