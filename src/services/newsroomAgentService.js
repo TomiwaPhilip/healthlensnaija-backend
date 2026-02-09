@@ -1,4 +1,4 @@
-const { streamText, tool, jsonSchema } = require("ai");
+const { streamText, tool, jsonSchema, stepCountIs } = require("ai");
 const {
   searchSourceText,
   upsertSourceText,
@@ -179,7 +179,7 @@ function buildSearchTool(storyId) {
   return tool({
     description:
       "Search the Pinecone knowledge base for this story to retrieve ground-truth passages, quotes, and metadata. Use this before composing any narrative.",
-    parameters: jsonSchema({
+    inputSchema: jsonSchema({
       type: "object",
       properties: {
         query: { type: "string", minLength: 3, description: "Query text" },
@@ -208,7 +208,7 @@ function buildWebSearchTool() {
   return tool({
     description:
       "Reach beyond the story corpus with Tavily search. Use it when Pinecone lacks up-to-date or corroborating information. The agent automatically prioritizes the newsroom's verified Nigerian health/governance domains before general web search.",
-    parameters: jsonSchema({
+    inputSchema: jsonSchema({
       type: "object",
       properties: {
         query: { type: "string", minLength: 3, description: "Query text" },
@@ -240,7 +240,7 @@ function buildWebExtractTool(storyId) {
   return tool({
     description:
       "Extract the full text of a URL via Tavily and optionally upsert the cleaned chunks into Pinecone for this story.",
-    parameters: jsonSchema({
+    inputSchema: jsonSchema({
       type: "object",
       properties: {
         url: { type: "string", format: "uri", description: "URL to extract" },
@@ -351,7 +351,7 @@ async function generateAssistantReply({
       search_web: buildWebSearchTool(),
       extract_web_context: buildWebExtractTool(storyId),
     },
-    maxSteps,
+    stopWhen: stepCountIs(maxSteps),
   });
 
   let text = "";

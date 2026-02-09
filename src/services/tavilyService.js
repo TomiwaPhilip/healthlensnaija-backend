@@ -70,8 +70,8 @@ async function searchWeb(query, options = {}) {
   }
 
   const client = getTavilyClient();
-  const payload = cleanPayload({
-    query: String(query).trim(),
+  const queryStr = String(query).trim();
+  const searchOptions = cleanPayload({
     searchDepth: options.searchDepth || DEFAULT_SEARCH_DEPTH,
     maxResults: options.maxResults,
     topic: options.topic,
@@ -92,7 +92,7 @@ async function searchWeb(query, options = {}) {
     timeout: options.timeout,
   });
 
-  return client.search(payload);
+  return client.search(queryStr, searchOptions);
 }
 
 async function extractWebContent(urls, options = {}) {
