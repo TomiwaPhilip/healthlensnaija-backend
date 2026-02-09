@@ -10,6 +10,12 @@ const MetadataSchema = new mongoose.Schema(
 
 const NewsroomStorySchema = new mongoose.Schema(
   {
+    owner: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "BaseUser",
+      required: true,
+      index: true,
+    },
     title: { type: String, required: true },
     status: { type: String, enum: ["draft", "published"], default: "draft" },
     preview_text: { type: String, default: "" },

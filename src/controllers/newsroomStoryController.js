@@ -8,7 +8,17 @@ function handleError(res, error) {
 
 async function listStories(req, res) {
   try {
-    const stories = await storyService.listStories(req.query.q || "");
+    if (!req.user?.id) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+
+    const { q = "", page = "1", limit = "12" } = req.query;
+    const stories = await storyService.listStories({
+      ownerId: req.user.id,
+      searchTerm: q,
+      page: Number(page),
+      limit: Number(limit),
+    });
     res.json(stories);
   } catch (error) {
     console.error("listStories error", error);
@@ -18,7 +28,11 @@ async function listStories(req, res) {
 
 async function createStory(req, res) {
   try {
-    const story = await storyService.createStory(req.body);
+    if (!req.user?.id) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+
+    const story = await storyService.createStory(req.body, req.user.id);
     res.status(201).json(story);
   } catch (error) {
     handleError(res, error);
@@ -27,7 +41,14 @@ async function createStory(req, res) {
 
 async function getStory(req, res) {
   try {
-    const story = await storyService.getStoryWithRelations(req.params.storyId);
+    if (!req.user?.id) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+
+    const story = await storyService.getStoryWithRelations(
+      req.params.storyId,
+      req.user.id
+    );
     if (!story) {
       return res.status(404).json({ message: "Story not found" });
     }
@@ -40,7 +61,11 @@ async function getStory(req, res) {
 
 async function deleteStory(req, res) {
   try {
-    const deleted = await storyService.deleteStory(req.params.storyId);
+    if (!req.user?.id) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+
+    const deleted = await storyService.deleteStory(req.params.storyId, req.user.id);
     if (!deleted) {
       return res.status(404).json({ message: "Story not found" });
     }

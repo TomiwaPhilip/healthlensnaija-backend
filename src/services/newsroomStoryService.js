@@ -23,15 +23,77 @@ function buildSearchFilter(searchTerm = "") {
   };
 }
 
-async function listStories(searchTerm = "") {
-  const filter = buildSearchFilter(searchTerm);
-  const stories = await NewsroomStory.find(filter)
-    .sort({ updatedAt: -1 })
-    .lean();
-  return stories;
+function ensureObjectId(id) {
+  if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+    return null;
+  }
+  return new mongoose.Types.ObjectId(id);
 }
 
-async function createStory(payload = {}) {
+function toStoryResponse(doc = {}) {
+  if (!doc) {
+    return null;
+  }
+
+  return {
+    id: doc._id?.toString(),
+    title: doc.title,
+    status: doc.status,
+    preview_text: doc.preview_text,
+    metadata: doc.metadata || {},
+    owner: doc.owner?.toString?.() || doc.owner,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
+  };
+}
+
+async function listStories({
+  ownerId,
+  searchTerm = "",
+  page = 1,
+  limit = 12,
+} = {}) {
+  const ownerObjectId = ensureObjectId(ownerId);
+  if (!ownerObjectId) {
+    throw new Error("Owner id is required to fetch stories");
+  }
+
+  const filter = {
+    owner: ownerObjectId,
+    ...buildSearchFilter(searchTerm),
+  };
+
+  const safeLimit = Math.max(1, Math.min(50, Number(limit) || 12));
+  const safePage = Math.max(1, Number(page) || 1);
+  const skip = (safePage - 1) * safeLimit;
+
+  const [total, rows] = await Promise.all([
+    NewsroomStory.countDocuments(filter),
+    NewsroomStory.find(filter)
+      .sort({ updatedAt: -1 })
+      .skip(skip)
+      .limit(safeLimit)
+      .lean(),
+  ]);
+
+  const stories = rows.map(toStoryResponse);
+  const hasMore = skip + stories.length < total;
+
+  return {
+    stories,
+    page: safePage,
+    limit: safeLimit,
+    total,
+    hasMore,
+  };
+}
+
+async function createStory(payload = {}, ownerId) {
+  const ownerObjectId = ensureObjectId(ownerId);
+  if (!ownerObjectId) {
+    throw new Error("Owner id is required to create a story");
+  }
+
   if (!payload.title || !payload.title.trim()) {
     throw new Error("Title is required to start a story workspace");
   }
@@ -40,13 +102,14 @@ async function createStory(payload = {}) {
     title: payload.title.trim(),
     status: payload.status || "draft",
     preview_text: payload.preview_text || "",
+    owner: ownerObjectId,
     metadata: {
       tags: normalizeTags(payload?.metadata?.tags),
       region: payload?.metadata?.region || "",
     },
   });
 
-  return story.toObject();
+  return toStoryResponse(story.toObject());
 }
 
 async function getStoryById(storyId) {
@@ -56,12 +119,21 @@ async function getStoryById(storyId) {
   return NewsroomStory.findById(storyId);
 }
 
-async function getStoryWithRelations(storyId) {
+async function getStoryWithRelations(storyId, ownerId) {
   if (!mongoose.Types.ObjectId.isValid(storyId)) {
     return null;
   }
 
-  const story = await NewsroomStory.findById(storyId).lean();
+  const filter = { _id: storyId };
+  if (ownerId) {
+    const ownerObjectId = ensureObjectId(ownerId);
+    if (!ownerObjectId) {
+      return null;
+    }
+    filter.owner = ownerObjectId;
+  }
+
+  const story = await NewsroomStory.findOne(filter).lean();
   if (!story) {
     return null;
   }
@@ -77,12 +149,20 @@ async function getStoryWithRelations(storyId) {
   return { ...story, artifacts, chat, sources };
 }
 
-async function deleteStory(storyId) {
+async function deleteStory(storyId, ownerId) {
   if (!mongoose.Types.ObjectId.isValid(storyId)) {
     return null;
   }
 
-  const story = await NewsroomStory.findByIdAndDelete(storyId);
+  const ownerObjectId = ensureObjectId(ownerId);
+  if (!ownerObjectId) {
+    return null;
+  }
+
+  const story = await NewsroomStory.findOneAndDelete({
+    _id: storyId,
+    owner: ownerObjectId,
+  });
   if (!story) {
     return null;
   }
