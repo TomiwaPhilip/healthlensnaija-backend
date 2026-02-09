@@ -129,7 +129,7 @@ async function upsertSourceText(storyId, records = []) {
 
   for (let i = 0; i < preparedRecords.length; i += MAX_TEXT_RECORDS_PER_BATCH) {
     const batch = preparedRecords.slice(i, i + MAX_TEXT_RECORDS_PER_BATCH);
-    await namespaceClient.upsertRecords({ records: batch });
+    await namespaceClient.upsertRecords(batch);
   }
 
   return {

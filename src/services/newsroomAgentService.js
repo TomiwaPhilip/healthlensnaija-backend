@@ -1,5 +1,4 @@
-const { streamText, tool } = require("ai");
-const { z } = require("zod");
+const { streamText, tool, jsonSchema } = require("ai");
 const {
   searchSourceText,
   upsertSourceText,
@@ -180,10 +179,15 @@ function buildSearchTool(storyId) {
   return tool({
     description:
       "Search the Pinecone knowledge base for this story to retrieve ground-truth passages, quotes, and metadata. Use this before composing any narrative.",
-    parameters: z.object({
-      query: z.string().min(3, "Query text is required"),
-      topK: z.number().int().min(1).max(20).optional(),
-      fields: z.array(z.string()).max(6).optional(),
+    parameters: jsonSchema({
+      type: "object",
+      properties: {
+        query: { type: "string", minLength: 3, description: "Query text" },
+        topK: { type: "integer", minimum: 1, maximum: 20, description: "Number of results" },
+        fields: { type: "array", items: { type: "string" }, maxItems: 6, description: "Fields to return" },
+      },
+      required: ["query"],
+      additionalProperties: false,
     }),
     execute: async ({ query, topK, fields }) => {
       const response = await searchSourceText(storyId, query, {
@@ -204,12 +208,17 @@ function buildWebSearchTool() {
   return tool({
     description:
       "Reach beyond the story corpus with Tavily search. Use it when Pinecone lacks up-to-date or corroborating information. The agent automatically prioritizes the newsroom's verified Nigerian health/governance domains before general web search.",
-    parameters: z.object({
-      query: z.string().min(3, "Query text is required"),
-      searchDepth: z.enum(["advanced", "basic", "fast", "ultra-fast"]).optional(),
-      maxResults: z.number().int().min(1).max(20).optional(),
-      topic: z.enum(["general", "news", "finance"]).optional(),
-      timeRange: z.enum(["day", "week", "month", "year", "d", "w", "m", "y"]).optional(),
+    parameters: jsonSchema({
+      type: "object",
+      properties: {
+        query: { type: "string", minLength: 3, description: "Query text" },
+        searchDepth: { type: "string", enum: ["advanced", "basic", "fast", "ultra-fast"] },
+        maxResults: { type: "integer", minimum: 1, maximum: 20 },
+        topic: { type: "string", enum: ["general", "news", "finance"] },
+        timeRange: { type: "string", enum: ["day", "week", "month", "year", "d", "w", "m", "y"] },
+      },
+      required: ["query"],
+      additionalProperties: false,
     }),
     execute: async ({ query, searchDepth, maxResults, topic, timeRange }) => {
       const baseOptions = {
@@ -231,13 +240,18 @@ function buildWebExtractTool(storyId) {
   return tool({
     description:
       "Extract the full text of a URL via Tavily and optionally upsert the cleaned chunks into Pinecone for this story.",
-    parameters: z.object({
-      url: z.string().url("A valid URL is required"),
-      intent: z.string().max(240).optional(),
-      upsert: z.boolean().optional(),
-      label: z.string().max(160).optional(),
-      tags: z.array(z.string().min(1).max(60)).max(8).optional(),
-      chunkLimit: z.number().int().min(1).max(24).optional(),
+    parameters: jsonSchema({
+      type: "object",
+      properties: {
+        url: { type: "string", format: "uri", description: "URL to extract" },
+        intent: { type: "string", maxLength: 240, description: "Optional context for extraction" },
+        upsert: { type: "boolean", description: "Whether to upsert into Pinecone" },
+        label: { type: "string", maxLength: 160, description: "Label for the source" },
+        tags: { type: "array", items: { type: "string", minLength: 1, maxLength: 60 }, maxItems: 8 },
+        chunkLimit: { type: "integer", minimum: 1, maximum: 24 },
+      },
+      required: ["url"],
+      additionalProperties: false,
     }),
     execute: async ({ url, intent, upsert, label, tags, chunkLimit }) => {
       const extractResponse = await extractWebContent(url, {

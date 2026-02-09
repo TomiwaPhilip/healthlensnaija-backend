@@ -25,10 +25,13 @@ function getBaseIndex() {
     const host = process.env.PINECONE_INDEX_HOST;
     const name = process.env.PINECONE_INDEX_NAME;
 
-    if (host) {
-      baseIndex = client.index({ host });
+    if (host && name) {
+      baseIndex = client.index(name, host);
+    } else if (host) {
+      // Use a placeholder name when only host is provided
+      baseIndex = client.index("default", host);
     } else if (name) {
-      baseIndex = client.index({ name });
+      baseIndex = client.index(name);
     } else {
       throw new Error("Set PINECONE_INDEX_HOST or PINECONE_INDEX_NAME to target your index");
     }

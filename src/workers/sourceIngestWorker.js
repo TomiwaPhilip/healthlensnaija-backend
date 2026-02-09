@@ -1,6 +1,6 @@
 const fs = require("fs/promises");
 const { Worker } = require("bullmq");
-const pdfParse = require("pdf-parse");
+const { PDFParse } = require("pdf-parse");
 const redisConnection = require("../config/redis");
 const { SOURCE_INGEST_QUEUE } = require("../queues/sourceIngestQueue");
 const NewsroomSource = require("../models/NewsroomSource");
@@ -42,23 +42,18 @@ async function buildPdfRecords(filePath, sourceId) {
   }
 
   const buffer = await fs.readFile(filePath);
-  const pages = [];
-  await pdfParse(buffer, {
-    pagerender: async (pageData) => {
-      const textContent = await pageData.getTextContent();
-      const combined = textContent.items.map((item) => item.str).join(" ");
-      const normalized = sanitizeText(combined);
-      pages.push(normalized);
-      return normalized;
-    },
-  });
+  console.log(`[PDF] Parsing file: ${filePath} (${buffer.length} bytes)`);
+  const parser = new PDFParse({ data: buffer });
+  const result = await parser.getText();
+  await parser.destroy();
+  console.log(`[PDF] Extracted ${result.pages.length} pages, total text length: ${result.text.length}`);
 
-  return pages
-    .map((text, index) => ({
-      id: `${sourceId}-page-${index + 1}`,
-      text,
+  return result.pages
+    .map((page) => ({
+      id: `${sourceId}-page-${page.num}`,
+      text: sanitizeText(page.text),
       metadata: {
-        page_number: index + 1,
+        page_number: page.num,
         source_type: "pdf",
       },
     }))
@@ -76,6 +71,14 @@ async function buildUrlRecords(url, sourceId) {
     format: "markdown",
     timeout: TAVILY_EXTRACT_TIMEOUT_SECONDS,
   });
+
+  console.log(`[URL] Tavily extract response keys:`, Object.keys(extractResponse || {}));
+  console.log(`[URL] results count:`, extractResponse?.results?.length ?? 0);
+  console.log(`[URL] failedResults count:`, extractResponse?.failedResults?.length ?? 0);
+  if (extractResponse?.results?.[0]) {
+    const r = extractResponse.results[0];
+    console.log(`[URL] First result - url: ${r.url}, title: ${r.title}, rawContent length: ${r.rawContent?.length ?? 0}`);
+  }
 
   const failedResults =
     extractResponse?.failed_results ||
@@ -129,6 +132,7 @@ async function processJob(job) {
     throw new Error(`Unsupported source ingestion type: ${type}`);
   }
 
+  console.log(`[Ingest] Built ${records.length} records for source ${sourceId} (type: ${type})`);
   if (!records.length) {
     throw new Error("No textual content extracted from source");
   }
@@ -155,13 +159,22 @@ const worker = new Worker(SOURCE_INGEST_QUEUE, processJob, {
   connection: redisConnection,
 });
 
+function friendlyIngestError(error) {
+  const msg = error?.message || "";
+  if (msg.includes("422") || msg.includes("Tavily")) return "Failed to extract content from URL";
+  if (msg.includes("pdfParse") || msg.includes("PDFParse") || msg.includes("Invalid PDF")) return "Failed to parse PDF file";
+  if (msg.includes("ENOENT") || msg.includes("Missing file")) return "Uploaded file not found";
+  if (msg.includes("No textual content")) return "No readable text found in source";
+  return "Source processing failed";
+}
+
 worker.on("failed", async (job, error) => {
   console.error("Source ingestion failed", job?.id, error);
   if (job?.data?.sourceId) {
     await markSourceStatus(job.data.sourceId, {
       ingest_status: "failed",
       vector_status: "failed",
-      ingest_error: error?.message?.slice(0, 400) || "Unknown error",
+      ingest_error: friendlyIngestError(error),
     });
   }
 });

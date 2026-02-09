@@ -104,8 +104,7 @@ async function extractWebContent(urls, options = {}) {
   }
 
   const client = getTavilyClient();
-  const payload = cleanPayload({
-    urls: sanitized,
+  const extractOptions = cleanPayload({
     query: options.query,
     extractDepth: options.extractDepth || DEFAULT_EXTRACT_DEPTH,
     includeImages: options.includeImages,
@@ -116,7 +115,7 @@ async function extractWebContent(urls, options = {}) {
     chunksPerSource: options.chunksPerSource,
   });
 
-  return client.extract(payload);
+  return client.extract(sanitized, extractOptions);
 }
 
 function sanitizeText(value = "") {
@@ -207,12 +206,12 @@ function buildRecordsFromExtract({
       }
     }
 
-    if (!textBuckets.length && result.raw_content) {
-      textBuckets.push(result.raw_content);
+    if (!textBuckets.length && (result.raw_content || result.rawContent)) {
+      textBuckets.push(result.raw_content || result.rawContent);
     }
 
-    if (!textBuckets.length && result.content) {
-      textBuckets.push(result.content);
+    if (!textBuckets.length && (result.content || result.text)) {
+      textBuckets.push(result.content || result.text);
     }
 
     for (const bucket of textBuckets) {
