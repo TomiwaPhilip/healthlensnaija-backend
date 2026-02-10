@@ -5,10 +5,10 @@ const NewsroomArtifact = require("../models/NewsroomArtifact");
 const { getStoryById, refreshStoryPreview } = require("./newsroomStoryService");
 
 const PDF_MARGINS = {
-  top: "32mm",
-  bottom: "32mm",
-  left: "20mm",
-  right: "20mm",
+  top: "8mm",
+  bottom: "8mm",
+  left: "8mm",
+  right: "8mm",
 };
 
 function sanitizeArtifactTitle(title = "") {
@@ -30,80 +30,80 @@ function buildPdfHtmlDocument(title, markdownContent = "") {
         body {
           font-family: "Inter", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
           margin: 0;
-          padding: 48px;
-          background: #f8fafc;
+          padding: 0;
+          background: #ffffff;
           color: #0f172a;
-          line-height: 1.6;
+          line-height: 1.5;
         }
         main {
           background: #ffffff;
-          border-radius: 18px;
-          padding: 48px 56px;
-          box-shadow: 0 20px 45px rgba(15, 23, 42, 0.08);
-          border: 1px solid #e2e8f0;
+          padding: 8px 12px;
         }
         h1, h2, h3, h4, h5, h6 {
           font-weight: 600;
           color: #0f172a;
-          margin-top: 32px;
-          margin-bottom: 16px;
+          margin-top: 12px;
+          margin-bottom: 6px;
         }
-        h1 { font-size: 2rem; }
-        h2 { font-size: 1.6rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
-        h3 { font-size: 1.25rem; }
-        p { margin: 16px 0; font-size: 1rem; }
-        ul, ol { margin: 16px 0; padding-left: 24px; }
-        li { margin-bottom: 8px; }
+        h1 { font-size: 1.6rem; }
+        h2 { font-size: 1.3rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; }
+        h3 { font-size: 1.1rem; }
+        p { margin: 8px 0; font-size: 0.95rem; }
+        ul, ol { margin: 8px 0; padding-left: 20px; }
+        li { margin-bottom: 4px; }
         blockquote {
-          border-left: 4px solid #0ea5e9;
+          border-left: 3px solid #0ea5e9;
           background: #f0f9ff;
-          padding: 16px 24px;
-          margin: 24px 0;
+          padding: 8px 14px;
+          margin: 12px 0;
           font-style: italic;
         }
         code {
           background: #e2e8f0;
-          border-radius: 8px;
-          padding: 2px 6px;
-          font-size: 0.95rem;
+          border-radius: 4px;
+          padding: 1px 4px;
+          font-size: 0.9rem;
         }
         pre {
           background: #0f172a;
           color: #f8fafc;
-          padding: 18px 24px;
-          border-radius: 16px;
+          padding: 10px 14px;
+          border-radius: 8px;
           overflow-x: auto;
+          font-size: 0.85rem;
         }
         table {
           width: 100%;
           border-collapse: collapse;
-          margin: 24px 0;
+          margin: 12px 0;
         }
         th, td {
           border: 1px solid #e2e8f0;
-          padding: 12px 16px;
+          padding: 6px 10px;
           text-align: left;
+          font-size: 0.9rem;
         }
         th {
           background: #f1f5f9;
           font-weight: 600;
         }
         figure {
-          margin: 24px 0;
+          margin: 12px 0;
         }
         figcaption {
           text-align: center;
-          font-size: 0.9rem;
+          font-size: 0.85rem;
           color: #475569;
         }
         .title {
-          font-size: 2.4rem;
+          font-size: 1.8rem;
           font-weight: 700;
-          margin-bottom: 8px;
+          margin-bottom: 2px;
         }
         .subtitle {
           color: #475569;
-          margin-bottom: 40px;
+          font-size: 0.85rem;
+          margin-bottom: 16px;
         }
       </style>
     </head>
@@ -129,7 +129,6 @@ async function renderPdfFromMarkdown(title, markdownContent) {
       format: "A4",
       margin: PDF_MARGINS,
       printBackground: true,
-      preferCSSPageSize: true,
     });
     return pdfBuffer;
   } finally {

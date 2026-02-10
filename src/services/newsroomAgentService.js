@@ -13,7 +13,6 @@ const { buildDetermContextSummary } = require("../utils/determ");
 const { getTrustedDomains } = require("../utils/trustedWebsites");
 
 const DEFAULT_MODEL = "gpt-5-mini-2025-08-07";
-const DEFAULT_TEMPERATURE = 0.2;
 const DEFAULT_WEB_CHUNK_LIMIT = Number(process.env.TAVILY_AGENT_CHUNK_LIMIT) || 8;
 const DEFAULT_AGENT_EXTRACT_TIMEOUT = Number(process.env.TAVILY_AGENT_EXTRACT_TIMEOUT_SECONDS) || undefined;
 const DEFAULT_AGENT_EXTRACT_DEPTH = process.env.TAVILY_AGENT_EXTRACT_DEPTH;
@@ -159,7 +158,15 @@ function buildSystemPrompt(story, contextSummary, chatHistorySummary, autoContex
     ].join("\n"),
     "All saved context must stay in this story's Pinecone namespace—never propose or create alternate namespaces.",
     "Scope Guard: Decline casual chat or requests unrelated to this investigation; politely redirect to newsroom tasks only.",
-    "Write every response as polished Markdown with informative headings, tight paragraphs, and inline source citations (filename or URL).",
+    [
+      "FORMAT RULES:",
+      "- Write every response as polished Markdown.",
+      "- Use **bold** for key terms, findings, and emphasis.",
+      "- Use bullet/numbered lists whenever listing facts, recommendations, or steps.",
+      "- Use headings (##, ###) to organize sections clearly.",
+      "- Every URL you cite MUST start with https:// — never output a bare domain like articles.nigeriahealthwatch.com; always write https://articles.nigeriahealthwatch.com.",
+      "- When you generate a story, article, report, or draft: end your response with the finished content. Do NOT add follow-up questions, suggestions, or 'What would you like to do next?' prompts after the generated text.",
+    ].join("\n"),
     "Never fabricate information. Every assertion must reference retrieved passages (include filename or URL and page when available). If the library lacks answers, explain what is missing and request follow-up ingestion.",
     `Story Title: ${story.title}`,
     `Status: ${story.status}`,
@@ -343,7 +350,6 @@ async function generateAssistantReply({
 
   const result = await streamText({
     model: openai(modelName),
-    temperature: DEFAULT_TEMPERATURE,
     system: buildSystemPrompt(story, contextSummary, chatHistorySummary, autoContextSummary),
     prompt,
     tools: {
