@@ -10,6 +10,7 @@ const { storySourcesRouter, sourceRouter } = require("./routes/newsroomSourceRou
 const authRoutes = require("./routes/authRoutes");
 const userRoutes = require("./routes/userRoutes");
 const roleRoutes = require("./routes/roleRoutes");
+const dashboardRoutes = require("./routes/dashboardRoutes");
 require("./workers/sourceIngestWorker");
 
 const app = express();
@@ -33,6 +34,7 @@ app.get("/health", (req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/roles", roleRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/stories", storyRoutes);
 app.use("/api/stories", chatRoutes);
 app.use("/api/stories", storyArtifactsRouter);
