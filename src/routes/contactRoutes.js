@@ -72,7 +72,7 @@ router.post("/", async (req, res) => {
 });
 
 // GET /api/contact — Fetch all messages (admin)
-router.get("/", async (req, res) => {
+router.get("/", verifyToken, async (req, res) => {
   try {
     const messages = await ContactMessage.find().sort({ createdAt: -1 });
     res.json(messages);
@@ -83,7 +83,7 @@ router.get("/", async (req, res) => {
 });
 
 // PATCH /api/contact/:id/read — Mark as read
-router.patch("/:id/read", async (req, res) => {
+router.patch("/:id/read", verifyToken, async (req, res) => {
   try {
     const msg = await ContactMessage.findByIdAndUpdate(
       req.params.id,
@@ -98,7 +98,7 @@ router.patch("/:id/read", async (req, res) => {
 });
 
 // DELETE /api/contact/:id — Delete a message
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", verifyToken, async (req, res) => {
   try {
     await ContactMessage.findByIdAndDelete(req.params.id);
     res.json({ success: true });
@@ -120,7 +120,7 @@ router.post("/:id/reply", verifyToken, async (req, res) => {
     const { id: adminId, role } = req.user;
 
     // ✅ Allow only admin/support roles
-    if (role !== "admin" && role !== "support" && role !== "superadmin") {
+    if (role !== "Admin" && role !== "Moderator") {
       return res.status(403).json({ error: "Access denied: insufficient permissions." });
     }
 
