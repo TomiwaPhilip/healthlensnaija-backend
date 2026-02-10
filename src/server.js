@@ -18,6 +18,7 @@ const PORT = process.env.PORT || 5000;
 const corsOptions = {
   origin: (origin, callback) => callback(null, true),
   credentials: true,
+  exposedHeaders: ["Content-Disposition"],
 };
 
 app.use(cors(corsOptions));
