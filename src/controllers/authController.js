@@ -64,7 +64,7 @@ const signup = async (req, res, next) => {
       isVerified: false,
     });
 
-    const verificationUrl = `${process.env.FRONTEND_URL}/verify-email/${verificationToken}`;
+    const verificationUrl = `${process.env.FRONTEND_URL}/#/verify-email/${verificationToken}`;
 
     await sendMail(
       email,

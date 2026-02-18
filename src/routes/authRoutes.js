@@ -146,7 +146,7 @@ router.post("/signup", async (req, res) => {
   });
 
   // 8) Send the email-verification link
-  const verifyUrl = `${process.env.FRONTEND_URL}/verify-email/${rawToken}`;
+  const verifyUrl = `${process.env.FRONTEND_URL}/#/verify-email/${rawToken}`;
   await sendMail(
     email,
     "📧 Please verify your email",
@@ -465,7 +465,7 @@ router.post("/forgot-password", async (req, res) => {
     user.resetPasswordExpires = Date.now() + 15 * 60 * 1000; // 15 mins
     await user.save();
 
-    const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+    const resetUrl = `${process.env.FRONTEND_URL}/#/reset-password/${resetToken}`;
 
     // 🚀 Send reset email via Resend
     await sendMail(
@@ -564,10 +564,10 @@ router.get(
 );
 router.get(
   "/google/callback",
-  passport.authenticate("google", { failureRedirect: "/signin" }),
+  passport.authenticate("google", { failureRedirect: `${process.env.FRONTEND_URL}/#/signin` }),
   async (req, res) => {
     if (!req.user) {
-      return res.redirect(`${process.env.FRONTEND_URL}/signin`);
+      return res.redirect(`${process.env.FRONTEND_URL}/#/signin`);
     }
 
     try {
@@ -576,7 +576,7 @@ router.get(
       // If not verified, send verification email and block login
       if (!user.isVerified) {
                 if (user._needsVerificationEmail) {
-                  const verifyUrl = `${process.env.FRONTEND_URL}/verify-email/${user._needsVerificationEmail.token}`;
+                  const verifyUrl = `${process.env.FRONTEND_URL}/#/verify-email/${user._needsVerificationEmail.token}`;
                   await sendMail(
                     user.email,
                     "📧 Please verify your email",
@@ -589,7 +589,7 @@ router.get(
                 }
         
                 return res.redirect(
-                  `${process.env.FRONTEND_URL}/pending-verification?email=${encodeURIComponent(user.email)}`
+                  `${process.env.FRONTEND_URL}/#/pending-verification?email=${encodeURIComponent(user.email)}`
                 );
               }
 
@@ -608,11 +608,11 @@ router.get(
       }));
       
       res.redirect(
-        `${process.env.FRONTEND_URL}/oauth/callback?token=${accessToken}&refreshToken=${refreshToken}&user=${userInfo}`
+        `${process.env.FRONTEND_URL}/#/oauth/callback?token=${accessToken}&refreshToken=${refreshToken}&user=${userInfo}`
       );
     } catch (err) {
       console.error("Google OAuth Callback Error:", err);
-      res.redirect(`${process.env.FRONTEND_URL}/signin?error=oauth_failed`);
+      res.redirect(`${process.env.FRONTEND_URL}/#/signin?error=oauth_failed`);
     }
   }
 );
@@ -624,14 +624,14 @@ router.get("/facebook", passport.authenticate("facebook", { scope: ["email"] }))
 
 router.get(
   "/facebook/callback",
-  passport.authenticate("facebook", { failureRedirect: "/signin" }),
+  passport.authenticate("facebook", { failureRedirect: `${process.env.FRONTEND_URL}/#/signin` }),
   (req, res) => {
     const token = jwt.sign(
          { id: req.user.id, email: req.user.email, role: req.user.role },
          process.env.JWT_SECRET,
          { expiresIn: "1h" }
        );
-    res.redirect(`${process.env.FRONTEND_URL}/oauth/callback?token=${token}`);
+    res.redirect(`${process.env.FRONTEND_URL}/#/oauth/callback?token=${token}`);
   }
 );
 
@@ -640,10 +640,10 @@ router.get("/twitter", passport.authenticate("twitter"));
 
 router.get(
   "/twitter/callback",
-  passport.authenticate("twitter", { failureRedirect: "/signin" }),
+  passport.authenticate("twitter", { failureRedirect: `${process.env.FRONTEND_URL}/#/signin` }),
   (req, res) => {
     const token = jwt.sign(req.user, process.env.JWT_SECRET, { expiresIn: "1h" });
-    res.redirect(`${process.env.FRONTEND_URL}/oauth/callback?token=${token}`);
+    res.redirect(`${process.env.FRONTEND_URL}/#/oauth/callback?token=${token}`);
   }
 );
 
