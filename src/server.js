@@ -60,8 +60,26 @@ app.use((err, req, res, next) => {
 async function startServer() {
   try {
     const mongoUri = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/healthlens";
-    await mongoose.connect(mongoUri);
+    await mongoose.connect(mongoUri, {
+      autoIndex: process.env.NODE_ENV !== "production", // skip index sync in prod
+    });
     console.log("✅ MongoDB connected for Newsroom backend");
+
+    // Clean up stale indexes from removed schema fields (runs once, silently)
+    try {
+      const db = mongoose.connection.db;
+      const collection = db.collection("baseusers");
+      const indexes = await collection.indexes();
+      const staleIndexes = ["githubId_1", "githubUsername_1", "ownerId_1", "isVerified_1"];
+      for (const idx of indexes) {
+        if (staleIndexes.includes(idx.name)) {
+          await collection.dropIndex(idx.name);
+          console.log(`🧹 Dropped stale index: ${idx.name}`);
+        }
+      }
+    } catch (cleanupErr) {
+      // Silently ignore — collection may not exist yet or indexes already gone
+    }
 
     app.listen(PORT, () => {
       console.log(`🚀 Newsroom backend running on port ${PORT}`);
