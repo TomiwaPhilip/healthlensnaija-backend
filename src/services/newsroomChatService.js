@@ -164,6 +164,7 @@ async function sendMessage(storyId, content, options = {}) {
         contextSummary,
         chatHistorySummary,
         onToken: options.onToken,
+        sourcesOnly: Boolean(options.sourcesOnly),
       });
       assistantText = response.text || buildAssistantReply(trimmedContent);
     } catch (agentError) {

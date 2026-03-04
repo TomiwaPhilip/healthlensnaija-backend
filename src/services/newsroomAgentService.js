@@ -85,7 +85,7 @@ async function prioritizedWebSearch(query, options = {}) {
   return searchWeb(query, options);
 }
 
-async function gatherAutoContext(storyId, query) {
+async function gatherAutoContext(storyId, query, { sourcesOnly = false } = {}) {
   const trimmed = (query || "").trim();
   if (!trimmed) {
     return "";
@@ -103,7 +103,7 @@ async function gatherAutoContext(storyId, query) {
   }
 
   let webResults = [];
-  if (ENABLE_AGENT_WEB_CONTEXT) {
+  if (!sourcesOnly && ENABLE_AGENT_WEB_CONTEXT) {
     try {
       const webSearch = await prioritizedWebSearch(trimmed, {
         maxResults: AUTO_WEB_RESULTS,
@@ -119,10 +119,12 @@ async function gatherAutoContext(storyId, query) {
   }
 
   let determSummary = "";
-  try {
-    determSummary = await buildDetermContextSummary(trimmed);
-  } catch (error) {
-    console.warn("Auto-context Determ fetch failed", error.message);
+  if (!sourcesOnly) {
+    try {
+      determSummary = await buildDetermContextSummary(trimmed);
+    } catch (error) {
+      console.warn("Auto-context Determ fetch failed", error.message);
+    }
   }
 
   const sections = [];
@@ -143,7 +145,7 @@ async function gatherAutoContext(storyId, query) {
   return sections.join("\n\n");
 }
 
-function buildSystemPrompt(story, contextSummary, chatHistorySummary, autoContextSummary) {
+function buildSystemPrompt(story, contextSummary, chatHistorySummary, autoContextSummary, { sourcesOnly = false } = {}) {
   const metadata = story.metadata || {};
   const tags = Array.isArray(metadata.tags) ? metadata.tags : [];
   const sections = [
@@ -169,6 +171,17 @@ function buildSystemPrompt(story, contextSummary, chatHistorySummary, autoContex
     ].join("\n"),
     "Never fabricate information. Every assertion must reference retrieved passages (include filename or URL and page when available). If the available datasets lack answers, explain what is missing and request follow-up ingestion.",
     "IMPORTANT: Never mention internal tools, databases, indexes, or technical infrastructure (such as Pinecone, Tavily, vector stores, namespaces, etc.) in your responses to users. Instead, refer to 'the available datasets', 'the story's knowledge base', 'ingested sources', or 'curated research materials'.",
+    sourcesOnly
+      ? [
+          "SOURCES-ONLY MODE (ACTIVE):",
+          "The user has enabled sources-only mode. You MUST strictly follow these rules:",
+          "- ONLY use evidence, facts, and quotes from the uploaded documents and ingested sources in this story's knowledge base.",
+          "- Do NOT supplement with your own training knowledge, general information, or any outside context.",
+          "- Do NOT use the `search_web` or `extract_web_context` tools.",
+          "- If the uploaded sources do not contain enough information to answer the query, say so clearly. List what is missing and suggest the user upload additional documents.",
+          "- Every claim must cite the source filename or URL from the ingested materials.",
+        ].join("\n")
+      : null,
     `Story Title: ${story.title}`,
     `Status: ${story.status}`,
     tags.length ? `Tags: ${tags.join(", ")}` : null,
@@ -334,6 +347,7 @@ async function generateAssistantReply({
   contextSummary,
   chatHistorySummary,
   onToken,
+  sourcesOnly = false,
 }) {
   if (!story) {
     throw new Error("Story context is required for agent replies");
@@ -347,17 +361,19 @@ async function generateAssistantReply({
   const openai = getOpenAIClient();
   const modelName = process.env.NEWSROOM_MODEL || DEFAULT_MODEL;
   const maxSteps = Number(process.env.AGENT_MAX_TOOL_STEPS) || 8;
-  const autoContextSummary = await gatherAutoContext(storyId, prompt);
+  const autoContextSummary = await gatherAutoContext(storyId, prompt, { sourcesOnly });
+
+  const tools = { search_sources: buildSearchTool(storyId) };
+  if (!sourcesOnly) {
+    tools.search_web = buildWebSearchTool();
+    tools.extract_web_context = buildWebExtractTool(storyId);
+  }
 
   const result = await streamText({
     model: openai(modelName),
-    system: buildSystemPrompt(story, contextSummary, chatHistorySummary, autoContextSummary),
+    system: buildSystemPrompt(story, contextSummary, chatHistorySummary, autoContextSummary, { sourcesOnly }),
     prompt,
-    tools: {
-      search_sources: buildSearchTool(storyId),
-      search_web: buildWebSearchTool(),
-      extract_web_context: buildWebExtractTool(storyId),
-    },
+    tools,
     stopWhen: stepCountIs(maxSteps),
   });
 

@@ -51,9 +51,10 @@ async function streamAgentResponse(req, res) {
   };
 
   try {
-    const { message } = req.body;
+    const { message, sourcesOnly } = req.body;
     const result = await chatService.sendMessage(req.params.storyId, message, {
       onToken: sendToken,
+      sourcesOnly: Boolean(sourcesOnly),
     });
     if (!closed) {
       writeSse(res, "complete", result);
@@ -74,8 +75,10 @@ async function sendMessage(req, res) {
   }
 
   try {
-    const { message } = req.body;
-    const result = await chatService.sendMessage(req.params.storyId, message);
+    const { message, sourcesOnly } = req.body;
+    const result = await chatService.sendMessage(req.params.storyId, message, {
+      sourcesOnly: Boolean(sourcesOnly),
+    });
     res.status(201).json(result);
   } catch (error) {
     handleError(res, error);
