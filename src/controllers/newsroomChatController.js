@@ -50,10 +50,18 @@ async function streamAgentResponse(req, res) {
     writeSse(res, "token", { token });
   };
 
+  const sendStatus = (status) => {
+    if (closed || !status) {
+      return;
+    }
+    writeSse(res, "status", { status });
+  };
+
   try {
     const { message, sourcesOnly } = req.body;
     const result = await chatService.sendMessage(req.params.storyId, message, {
       onToken: sendToken,
+      onStatus: sendStatus,
       sourcesOnly: Boolean(sourcesOnly),
     });
     if (!closed) {

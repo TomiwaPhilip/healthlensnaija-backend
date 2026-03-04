@@ -347,6 +347,7 @@ async function generateAssistantReply({
   contextSummary,
   chatHistorySummary,
   onToken,
+  onStatus,
   sourcesOnly = false,
 }) {
   if (!story) {
@@ -361,12 +362,27 @@ async function generateAssistantReply({
   const openai = getOpenAIClient();
   const modelName = process.env.NEWSROOM_MODEL || DEFAULT_MODEL;
   const maxSteps = Number(process.env.AGENT_MAX_TOOL_STEPS) || 8;
+
+  if (typeof onStatus === "function") {
+    await onStatus("Analyzing your query…");
+  }
+
   const autoContextSummary = await gatherAutoContext(storyId, prompt, { sourcesOnly });
+
+  const TOOL_LABELS = {
+    search_sources: "Searching uploaded sources…",
+    search_web: "Searching the web for context…",
+    extract_web_context: "Extracting content from a URL…",
+  };
 
   const tools = { search_sources: buildSearchTool(storyId) };
   if (!sourcesOnly) {
     tools.search_web = buildWebSearchTool();
     tools.extract_web_context = buildWebExtractTool(storyId);
+  }
+
+  if (typeof onStatus === "function") {
+    await onStatus("Thinking…");
   }
 
   const result = await streamText({
@@ -378,13 +394,17 @@ async function generateAssistantReply({
   });
 
   let text = "";
-  for await (const delta of result.textStream) {
-    if (!delta) {
-      continue;
-    }
-    text += delta;
-    if (typeof onToken === "function") {
-      await onToken(delta);
+  for await (const chunk of result.fullStream) {
+    if (chunk.type === "tool-call" && typeof onStatus === "function") {
+      const label = TOOL_LABELS[chunk.toolName] || `Using ${chunk.toolName}…`;
+      await onStatus(label);
+    } else if (chunk.type === "tool-result" && typeof onStatus === "function") {
+      await onStatus("Processing results…");
+    } else if (chunk.type === "text-delta" && chunk.textDelta) {
+      text += chunk.textDelta;
+      if (typeof onToken === "function") {
+        await onToken(chunk.textDelta);
+      }
     }
   }
 
