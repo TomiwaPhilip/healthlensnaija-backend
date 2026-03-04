@@ -31,7 +31,7 @@ function sanitizeSnippet(value = "", limit = 420) {
 
 function summarizeSourceHits(hits = []) {
   if (!Array.isArray(hits) || !hits.length) {
-    return "No Pinecone passages retrieved.";
+    return "No matching passages found in the available datasets.";
   }
 
   return hits.slice(0, AUTO_SOURCE_TOP_K).map((hit, index) => {
@@ -127,7 +127,7 @@ async function gatherAutoContext(storyId, query) {
 
   const sections = [];
   if (sourceHits.length) {
-    sections.push(`Pinecone Evidence:\n${summarizeSourceHits(sourceHits)}`);
+    sections.push(`Source Evidence:\n${summarizeSourceHits(sourceHits)}`);
   }
   if (webResults.length) {
     sections.push(`Web Findings:\n${summarizeWebResults(webResults)}`);
@@ -151,12 +151,12 @@ function buildSystemPrompt(story, contextSummary, chatHistorySummary, autoContex
     "Blend structured analysis with empathetic tone. Cite facts from provided context.",
     [
       "TOOLS (use in order):",
-      "1. `search_sources` — query the Pinecone namespace for ground-truth quotes and metadata.",
-      "2. `search_web` — expand the search with Tavily when local sources are thin or time-sensitive. Always ping the newsroom's verified domains first (see validWebsites.json) before widening the query.",
-      "3. `extract_web_context` — fetch a specific URL via Tavily and set `upsert: true` when the newsroom needs that source indexed.",
+      "1. `search_sources` — query the story's knowledge base for ground-truth quotes and metadata.",
+      "2. `search_web` — expand the search when local sources are thin or time-sensitive. Always ping the newsroom's verified domains first (see validWebsites.json) before widening the query.",
+      "3. `extract_web_context` — fetch a specific URL and set `upsert: true` when the newsroom needs that source indexed.",
       "Never skip `search_sources` before drafting, and cite the filename or URL for every claim.",
     ].join("\n"),
-    "All saved context must stay in this story's Pinecone namespace—never propose or create alternate namespaces.",
+    "All saved context must stay in this story's knowledge base—never propose or create alternate storage.",
     "Scope Guard: Decline casual chat or requests unrelated to this investigation; politely redirect to newsroom tasks only.",
     [
       "FORMAT RULES:",
@@ -167,7 +167,8 @@ function buildSystemPrompt(story, contextSummary, chatHistorySummary, autoContex
       "- Every URL you cite MUST start with https:// — never output a bare domain like articles.nigeriahealthwatch.com; always write https://articles.nigeriahealthwatch.com.",
       "- When you generate a story, article, report, or draft: end your response with the finished content. Do NOT add follow-up questions, suggestions, or 'What would you like to do next?' prompts after the generated text.",
     ].join("\n"),
-    "Never fabricate information. Every assertion must reference retrieved passages (include filename or URL and page when available). If the library lacks answers, explain what is missing and request follow-up ingestion.",
+    "Never fabricate information. Every assertion must reference retrieved passages (include filename or URL and page when available). If the available datasets lack answers, explain what is missing and request follow-up ingestion.",
+    "IMPORTANT: Never mention internal tools, databases, indexes, or technical infrastructure (such as Pinecone, Tavily, vector stores, namespaces, etc.) in your responses to users. Instead, refer to 'the available datasets', 'the story's knowledge base', 'ingested sources', or 'curated research materials'.",
     `Story Title: ${story.title}`,
     `Status: ${story.status}`,
     tags.length ? `Tags: ${tags.join(", ")}` : null,
@@ -185,7 +186,7 @@ function buildSystemPrompt(story, contextSummary, chatHistorySummary, autoContex
 function buildSearchTool(storyId) {
   return tool({
     description:
-      "Search the Pinecone knowledge base for this story to retrieve ground-truth passages, quotes, and metadata. Use this before composing any narrative.",
+      "Search the story's knowledge base and available datasets to retrieve ground-truth passages, quotes, and metadata. Use this before composing any narrative.",
     inputSchema: jsonSchema({
       type: "object",
       properties: {
@@ -214,7 +215,7 @@ function buildSearchTool(storyId) {
 function buildWebSearchTool() {
   return tool({
     description:
-      "Reach beyond the story corpus with Tavily search. Use it when Pinecone lacks up-to-date or corroborating information. The agent automatically prioritizes the newsroom's verified Nigerian health/governance domains before general web search.",
+      "Reach beyond the ingested sources with a live web search. Use it when the available datasets lack up-to-date or corroborating information. The agent automatically prioritizes the newsroom's verified Nigerian health/governance domains before general web search.",
     inputSchema: jsonSchema({
       type: "object",
       properties: {
@@ -246,13 +247,13 @@ function buildWebSearchTool() {
 function buildWebExtractTool(storyId) {
   return tool({
     description:
-      "Extract the full text of a URL via Tavily and optionally upsert the cleaned chunks into Pinecone for this story.",
+      "Extract the full text of a URL and optionally save the cleaned content into this story's knowledge base.",
     inputSchema: jsonSchema({
       type: "object",
       properties: {
         url: { type: "string", format: "uri", description: "URL to extract" },
         intent: { type: "string", maxLength: 240, description: "Optional context for extraction" },
-        upsert: { type: "boolean", description: "Whether to upsert into Pinecone" },
+        upsert: { type: "boolean", description: "Whether to save into the story knowledge base" },
         label: { type: "string", maxLength: 160, description: "Label for the source" },
         tags: { type: "array", items: { type: "string", minLength: 1, maxLength: 60 }, maxItems: 8 },
         chunkLimit: { type: "integer", minimum: 1, maximum: 24 },
