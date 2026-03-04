@@ -121,7 +121,11 @@ router.post("/signup", async (req, res) => {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return res.status(400).json({ message: "Invalid email format" });
   }
-  if (!/^\d{10,15}$/.test(phoneNumber)) {
+
+  // Normalize phone: strip spaces, dashes, parens; keep leading +
+  const normalizedPhone = phoneNumber.replace(/[\s\-()]/g, "");
+  // Accept optional + prefix followed by 10-15 digits
+  if (!/^\+?\d{10,15}$/.test(normalizedPhone)) {
     return res.status(400).json({ message: "Invalid phone number format" });
   }
 
@@ -137,7 +141,7 @@ router.post("/signup", async (req, res) => {
     firstName,
     lastName,
     email,
-    phoneNumber,
+    phoneNumber: normalizedPhone,
     password: hashedPassword,
     isVerified: false,
     role: "Guest",
