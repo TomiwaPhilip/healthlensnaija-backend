@@ -2,6 +2,8 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
+const session = require("express-session");
+const passport = require("./config/passport");
 
 const storyRoutes = require("./routes/newsroomStoryRoutes");
 const chatRoutes = require("./routes/newsroomChatRoutes");
@@ -28,6 +30,21 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Session + Passport (required for OAuth flows)
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || process.env.JWT_SECRET || "healthlens-session-secret",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 10 * 60 * 1000, // 10 min — only needed during OAuth handshake
+    },
+  })
+);
+app.use(passport.initialize());
+app.use(passport.session());
 
 
 app.get("/health", (req, res) => {
