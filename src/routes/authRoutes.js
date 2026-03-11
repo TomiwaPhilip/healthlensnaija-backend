@@ -126,7 +126,7 @@ router.post("/signup", async (req, res) => {
   const normalizedPhone = phoneNumber.replace(/[\s\-()]/g, "");
   // Accept optional + prefix followed by 10-15 digits
   if (!/^\+?\d{10,15}$/.test(normalizedPhone)) {
-    return res.status(400).json({ message: "Invalid phone number format" });
+    return res.status(400).json({ message: "Enter a valid phone number with 10–15 digits (e.g. 08031234567)" });
   }
 
   // 5) Hash password
