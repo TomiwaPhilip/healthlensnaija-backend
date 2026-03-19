@@ -10,26 +10,7 @@ const { generateAssistantReply } = require("./newsroomAgentService");
 
 const CHAT_HISTORY_LIMIT = Number(process.env.AGENT_CHAT_HISTORY_LIMIT) || 10;
 const HISTORY_SNIPPET_LIMIT = Number(process.env.AGENT_HISTORY_SNIPPET_LIMIT) || 360;
-const GREETING_REGEX = /^(hi|hello|hey|good (morning|afternoon|evening)|what's up|whats up|sup)\b/i;
-const OUT_OF_SCOPE_KEYWORDS = [
-  "joke",
-  "weather",
-  "song",
-  "poem",
-  "recipe",
-  "code",
-  "game",
-  "play",
-  "gossip",
-  "chat",
-  "small talk",
-];
 
-function buildAssistantReply(userContent) {
-  const base =
-    "This is a placeholder response from the newsroom assistant. Updated AI hooks will replace this soon.";
-  return `${base} You said: ${userContent.slice(0, 200)}...`;
-}
 
 async function ensureStoryExists(storyId) {
   const story = await getStoryById(storyId);
@@ -105,23 +86,7 @@ function formatHistoryForAgent(messages = []) {
   }).join("\n");
 }
 
-function detectScopeViolation(content = "") {
-  const normalized = content.trim();
-  if (!normalized) {
-    return "I only respond to newsroom tasks tied to this investigation. Please provide a concrete reporting request.";
-  }
 
-  if (GREETING_REGEX.test(normalized) && normalized.split(/\s+/).length <= 12) {
-    return "Let's stay focused on the investigation. Share the reporting task or question you need help with.";
-  }
-
-  const lower = normalized.toLowerCase();
-  if (OUT_OF_SCOPE_KEYWORDS.some((keyword) => lower.includes(keyword))) {
-    return "I'm restricted to investigative workflow support—please provide a story-specific request.";
-  }
-
-  return null;
-}
 
 async function sendMessage(storyId, content, options = {}) {
   if (!content || !content.trim()) {
@@ -146,42 +111,41 @@ async function sendMessage(storyId, content, options = {}) {
     timestamp: new Date(),
   };
 
-  const userMessage = await NewsroomMessage.create(userPayload);
-
   let assistantText;
-  const scopeViolation = detectScopeViolation(trimmedContent);
-
-  if (scopeViolation) {
-    if (typeof options.onToken === "function") {
-      await options.onToken(scopeViolation);
+  try {
+    const response = await generateAssistantReply({
+      story,
+      prompt: trimmedContent,
+      contextSummary,
+      chatHistorySummary,
+      onToken: options.onToken,
+      onStatus: options.onStatus,
+      sourcesOnly: Boolean(options.sourcesOnly),
+    });
+    assistantText = response.text;
+    if (!assistantText) {
+      console.error("generateAssistantReply returned empty text");
+      throw new Error("Model returned an empty response — please try again.");
     }
-    assistantText = scopeViolation;
-  } else {
-    try {
-      const response = await generateAssistantReply({
-        story,
-        prompt: trimmedContent,
-        contextSummary,
-        chatHistorySummary,
-        onToken: options.onToken,
-        onStatus: options.onStatus,
-        sourcesOnly: Boolean(options.sourcesOnly),
-      });
-      assistantText = response.text || buildAssistantReply(trimmedContent);
-    } catch (agentError) {
-      console.error("newsroomAgent error", agentError);
-      assistantText = buildAssistantReply(trimmedContent);
-    }
+  } catch (agentError) {
+    console.error("newsroomAgent error:", agentError.message, agentError.stack);
+    throw agentError;
   }
 
-  const assistantMessage = await NewsroomMessage.create({
-    story: storyId,
-    role: "assistant",
-    content: assistantText,
-    timestamp: new Date(),
-  });
+  // Save both messages after model responds — keeps the streaming path fast
+  const [userMessage, assistantMessage] = await Promise.all([
+    NewsroomMessage.create(userPayload),
+    NewsroomMessage.create({
+      story: storyId,
+      role: "assistant",
+      content: assistantText,
+      timestamp: new Date(),
+    }),
+  ]);
 
-  await refreshStoryPreview(storyId);
+  refreshStoryPreview(storyId).catch((err) =>
+    console.error("refreshStoryPreview error", err)
+  );
 
   return {
     userMessage: userMessage.toObject(),

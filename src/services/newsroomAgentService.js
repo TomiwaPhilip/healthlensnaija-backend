@@ -21,6 +21,8 @@ const AUTO_SOURCE_TOP_K = Number(process.env.AGENT_AUTO_SOURCE_TOP_K) || 6;
 const AUTO_WEB_RESULTS = Number(process.env.AGENT_AUTO_WEB_RESULTS) || 3;
 const ENABLE_AGENT_WEB_CONTEXT = process.env.AGENT_ENABLE_WEB_CONTEXT !== "false";
 const TRUSTED_DOMAINS = getTrustedDomains();
+const GREETING_REGEX = /^(hi|hello|hey|yo|sup|what'?s up|whats up|good\s+(morning|afternoon|evening)|how are you|how'?s it going)\b/i;
+const REPORTING_INTENT_REGEX = /\b(investigat|story|report|source|draft|quote|interview|outline|research|article|upload|document|pdf|url|fact\s*check|health|latest|find|help me)\b/i;
 
 function sanitizeSnippet(value = "", limit = 420) {
   return String(value || "")
@@ -145,21 +147,107 @@ async function gatherAutoContext(storyId, query, { sourcesOnly = false } = {}) {
   return sections.join("\n\n");
 }
 
+function isLightweightConversation(prompt = "") {
+  const trimmed = String(prompt || "").trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+  return wordCount <= 12 && GREETING_REGEX.test(trimmed) && !REPORTING_INTENT_REGEX.test(trimmed);
+}
+
+function buildDirectAnswerSystemPrompt(baseSystemPrompt) {
+  return [
+    baseSystemPrompt,
+    "DIRECT-ANSWER MODE:",
+    "- Do not call tools in this turn.",
+    "- If the user is greeting you or making brief small talk, reply warmly, naturally, and briefly.",
+    "- If the user is asking for reporting help, answer directly from the context already available in this turn.",
+    "- Do not start reporting or research answers with greetings, pleasantries, or lines like 'Hey' or 'Great to see you.' Go straight into the substance.",
+    "- Do not stall, do not say you are about to research unless you actually need more information from the user.",
+  ].join("\n\n");
+}
+
+async function streamAssistantText({ openai, modelName, system, prompt, tools, stopWhen, onToken, onStatus, toolLabels }) {
+  const result = await streamText({
+    model: openai(modelName),
+    system,
+    prompt,
+    ...(tools ? { tools } : {}),
+    ...(stopWhen ? { stopWhen } : {}),
+  });
+
+  let text = "";
+  const chunkTypes = [];
+
+  for await (const chunk of result.fullStream) {
+    chunkTypes.push(chunk.type);
+
+    if (chunk.type === "error") {
+      console.error("streamText error chunk:", chunk.error);
+      throw chunk.error instanceof Error
+        ? chunk.error
+        : new Error(String(chunk.error || "Unknown streaming error"));
+    }
+
+    if (chunk.type === "tool-call" && typeof onStatus === "function") {
+      const label = toolLabels?.[chunk.toolName] || `Using ${chunk.toolName}…`;
+      await onStatus(label);
+      continue;
+    }
+
+    if (chunk.type === "tool-result" && typeof onStatus === "function") {
+      await onStatus("Processing results…");
+      continue;
+    }
+
+    const deltaText =
+      chunk.type === "text-delta"
+        ? (typeof chunk.text === "string" ? chunk.text : chunk.textDelta)
+        : null;
+
+    if (deltaText) {
+      text += deltaText;
+      if (typeof onToken === "function") {
+        await onToken(deltaText);
+      }
+    }
+  }
+
+  if (!text) {
+    try {
+      text = await result.text;
+    } catch (fallbackErr) {
+      console.error("result.text fallback failed:", fallbackErr.message);
+    }
+  }
+
+  return {
+    text: text.trim(),
+    finishReason: result.finishReason,
+    chunkTypes,
+  };
+}
+
 function buildSystemPrompt(story, contextSummary, chatHistorySummary, autoContextSummary, { sourcesOnly = false } = {}) {
   const metadata = story.metadata || {};
   const tags = Array.isArray(metadata.tags) ? metadata.tags : [];
   const sections = [
-    "You are HealthLens Newsroom AI, a meticulous assistant for investigative journalists.",
-    "Blend structured analysis with empathetic tone. Cite facts from provided context.",
+    "You are HealthLens Newsroom AI, a meticulous yet warm and friendly assistant for investigative journalists.",
+    "Blend structured analysis with an approachable, conversational tone. Cite facts from provided context.",
+    "Be personable without sounding canned. Only greet the user if their current message is itself a greeting or brief small talk. For research, drafting, or analysis requests, skip pleasantries and begin directly with the answer.",
     [
       "TOOLS (use in order):",
       "1. `search_sources` — query the story's knowledge base for ground-truth quotes and metadata.",
       "2. `search_web` — expand the search when local sources are thin or time-sensitive. Always ping the newsroom's verified domains first (see validWebsites.json) before widening the query.",
       "3. `extract_web_context` — fetch a specific URL and set `upsert: true` when the newsroom needs that source indexed.",
+      "For simple greetings or brief small talk, do NOT use tools; reply directly and warmly.",
+      "Do NOT start normal reporting answers with generic openers like 'Hey', 'Great to see you', or 'Nice to hear from you' unless the user just greeted you.",
       "Never skip `search_sources` before drafting, and cite the filename or URL for every claim.",
     ].join("\n"),
     "All saved context must stay in this story's knowledge base—never propose or create alternate storage.",
-    "Scope Guard: Decline casual chat or requests unrelated to this investigation; politely redirect to newsroom tasks only.",
+    "If a user goes completely off-topic (e.g., asking you to write unrelated code, play games, or do tasks totally outside journalism), gently and warmly bring the conversation back: acknowledge their message, then remind them you're here to help with their investigation.",
     [
       "FORMAT RULES:",
       "- Write every response as polished Markdown.",
@@ -362,18 +450,49 @@ async function generateAssistantReply({
   const openai = getOpenAIClient();
   const modelName = process.env.NEWSROOM_MODEL || DEFAULT_MODEL;
   const maxSteps = Number(process.env.AGENT_MAX_TOOL_STEPS) || 8;
+  const lightweightConversation = isLightweightConversation(prompt);
 
   if (typeof onStatus === "function") {
     await onStatus("Analyzing your query…");
   }
 
-  const autoContextSummary = await gatherAutoContext(storyId, prompt, { sourcesOnly });
+  const autoContextSummary = lightweightConversation
+    ? ""
+    : await gatherAutoContext(storyId, prompt, { sourcesOnly });
+
+  const systemPrompt = buildSystemPrompt(
+    story,
+    contextSummary,
+    chatHistorySummary,
+    autoContextSummary,
+    { sourcesOnly }
+  );
+  const directAnswerPrompt = buildDirectAnswerSystemPrompt(systemPrompt);
 
   const TOOL_LABELS = {
     search_sources: "Searching uploaded sources…",
     search_web: "Searching the web for context…",
     extract_web_context: "Extracting content from a URL…",
   };
+
+  if (lightweightConversation) {
+    if (typeof onStatus === "function") {
+      await onStatus("Thinking…");
+    }
+
+    const directResponse = await streamAssistantText({
+      openai,
+      modelName,
+      system: directAnswerPrompt,
+      prompt,
+      onToken,
+    });
+
+    return {
+      text: directResponse.text,
+      finishReason: directResponse.finishReason,
+    };
+  }
 
   const tools = { search_sources: buildSearchTool(storyId) };
   if (!sourcesOnly) {
@@ -385,32 +504,47 @@ async function generateAssistantReply({
     await onStatus("Thinking…");
   }
 
-  const result = await streamText({
-    model: openai(modelName),
-    system: buildSystemPrompt(story, contextSummary, chatHistorySummary, autoContextSummary, { sourcesOnly }),
+  const toolResponse = await streamAssistantText({
+    openai,
+    modelName,
+    system: systemPrompt,
     prompt,
     tools,
     stopWhen: stepCountIs(maxSteps),
+    onToken,
+    onStatus,
+    toolLabels: TOOL_LABELS,
   });
 
-  let text = "";
-  for await (const chunk of result.fullStream) {
-    if (chunk.type === "tool-call" && typeof onStatus === "function") {
-      const label = TOOL_LABELS[chunk.toolName] || `Using ${chunk.toolName}…`;
-      await onStatus(label);
-    } else if (chunk.type === "tool-result" && typeof onStatus === "function") {
-      await onStatus("Processing results…");
-    } else if (chunk.type === "text-delta" && chunk.textDelta) {
-      text += chunk.textDelta;
-      if (typeof onToken === "function") {
-        await onToken(chunk.textDelta);
-      }
+  if (!toolResponse.text) {
+    console.warn("Tool-enabled run finished without text; retrying in direct-answer mode", {
+      storyId,
+      prompt: String(prompt || "").slice(0, 120),
+      chunkTypes: toolResponse.chunkTypes,
+      finishReason: toolResponse.finishReason,
+    });
+
+    if (typeof onStatus === "function") {
+      await onStatus("Finalizing response…");
     }
+
+    const recoveryResponse = await streamAssistantText({
+      openai,
+      modelName,
+      system: directAnswerPrompt,
+      prompt,
+      onToken,
+    });
+
+    return {
+      text: recoveryResponse.text,
+      finishReason: recoveryResponse.finishReason,
+    };
   }
 
   return {
-    text: text.trim(),
-    finishReason: result.finishReason,
+    text: toolResponse.text,
+    finishReason: toolResponse.finishReason,
   };
 }
 
