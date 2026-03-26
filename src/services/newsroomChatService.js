@@ -8,8 +8,8 @@ const {
 } = require("./newsroomStoryService");
 const { generateAssistantReply } = require("./newsroomAgentService");
 
-const CHAT_HISTORY_LIMIT = Number(process.env.AGENT_CHAT_HISTORY_LIMIT) || 10;
-const HISTORY_SNIPPET_LIMIT = Number(process.env.AGENT_HISTORY_SNIPPET_LIMIT) || 360;
+const CHAT_HISTORY_LIMIT = Number(process.env.AGENT_CHAT_HISTORY_LIMIT) || 6;
+const HISTORY_SNIPPET_LIMIT = Number(process.env.AGENT_HISTORY_SNIPPET_LIMIT) || 220;
 
 
 async function ensureStoryExists(storyId) {
@@ -37,18 +37,18 @@ async function buildContextSummary(storyId) {
   const [artifacts, sources] = await Promise.all([
     NewsroomArtifact.find({ story: storyId })
       .sort({ updatedAt: -1 })
-      .limit(5)
+      .limit(3)
       .lean(),
     NewsroomSource.find({ story: storyId })
       .sort({ createdAt: -1 })
-      .limit(5)
+      .limit(3)
       .lean(),
   ]);
 
   const artifactSection = artifacts
     .map((artifact, index) => {
       const content = artifact.content || "";
-      const snippet = content.slice(0, 400).replace(/\s+/g, " ");
+      const snippet = content.slice(0, 220).replace(/\s+/g, " ");
       return `${index + 1}. ${artifact.title} (${artifact.type})\n${snippet}`;
     })
     .join("\n\n");
@@ -121,6 +121,7 @@ async function sendMessage(storyId, content, options = {}) {
       onToken: options.onToken,
       onStatus: options.onStatus,
       sourcesOnly: Boolean(options.sourcesOnly),
+      researchMode: options.researchMode,
     });
     assistantText = response.text;
     if (!assistantText) {

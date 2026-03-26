@@ -13,16 +13,25 @@ const { buildDetermContextSummary } = require("../utils/determ");
 const { getTrustedDomains } = require("../utils/trustedWebsites");
 
 const DEFAULT_MODEL = "gpt-5-mini-2025-08-07";
-const DEFAULT_WEB_CHUNK_LIMIT = Number(process.env.TAVILY_AGENT_CHUNK_LIMIT) || 8;
-const DEFAULT_AGENT_EXTRACT_TIMEOUT = Number(process.env.TAVILY_AGENT_EXTRACT_TIMEOUT_SECONDS) || undefined;
+const DEFAULT_WEB_CHUNK_LIMIT = Number(process.env.TAVILY_AGENT_CHUNK_LIMIT) || 4;
+const DEFAULT_AGENT_EXTRACT_TIMEOUT = Number(process.env.TAVILY_AGENT_EXTRACT_TIMEOUT_SECONDS) || 8;
 const DEFAULT_AGENT_EXTRACT_DEPTH = process.env.TAVILY_AGENT_EXTRACT_DEPTH;
 const TEXT_FIELD = process.env.PINECONE_TEXT_FIELD || "chunk_text";
-const AUTO_SOURCE_TOP_K = Number(process.env.AGENT_AUTO_SOURCE_TOP_K) || 6;
-const AUTO_WEB_RESULTS = Number(process.env.AGENT_AUTO_WEB_RESULTS) || 3;
+const AUTO_SOURCE_TOP_K = Number(process.env.AGENT_AUTO_SOURCE_TOP_K) || 4;
+const AUTO_WEB_RESULTS = Number(process.env.AGENT_AUTO_WEB_RESULTS) || 2;
 const ENABLE_AGENT_WEB_CONTEXT = process.env.AGENT_ENABLE_WEB_CONTEXT !== "false";
 const TRUSTED_DOMAINS = getTrustedDomains();
+const RESEARCH_MODES = Object.freeze({
+  FAST: "fast",
+  BALANCED: "balanced",
+  DEEP: "deep",
+});
 const GREETING_REGEX = /^(hi|hello|hey|yo|sup|what'?s up|whats up|good\s+(morning|afternoon|evening)|how are you|how'?s it going)\b/i;
 const REPORTING_INTENT_REGEX = /\b(investigat|story|report|source|draft|quote|interview|outline|research|article|upload|document|pdf|url|fact\s*check|health|latest|find|help me)\b/i;
+const FRESH_CONTEXT_REGEX = /\b(latest|recent|current|today|tonight|new|breaking|developing|update|updates|this week|this month|right now)\b/i;
+const DEEP_RESEARCH_REGEX = /\b(deep\s*dive|comprehensive|exhaustive|thorough|in\s*depth|full\s*research|all\s+angles|every\s+angle)\b/i;
+const TOOL_REQUIRED_REGEX = /(https?:\/\/|\b(fetch|extract|ingest|index|upsert|save\s+(this\s+)?url|open\s+(this\s+)?url|crawl)\b)/i;
+const HEALTH_NEWS_REGEX = /\b(health|public health|disease|hospital|medical|doctor|clinic|vaccine|outbreak|nutrition|maternal|child health|epidemic)\b/i;
 
 function sanitizeSnippet(value = "", limit = 420) {
   return String(value || "")
@@ -87,47 +96,74 @@ async function prioritizedWebSearch(query, options = {}) {
   return searchWeb(query, options);
 }
 
-async function gatherAutoContext(storyId, query, { sourcesOnly = false } = {}) {
+function needsFreshContext(prompt = "") {
+  return FRESH_CONTEXT_REGEX.test(String(prompt || ""));
+}
+
+function needsDeepResearch(prompt = "") {
+  return DEEP_RESEARCH_REGEX.test(String(prompt || ""));
+}
+
+function requiresSlowToolLoop(prompt = "") {
+  return TOOL_REQUIRED_REGEX.test(String(prompt || ""));
+}
+
+function normalizeResearchMode(mode) {
+  const normalized = String(mode || "").trim().toLowerCase();
+  if (normalized === RESEARCH_MODES.FAST || normalized === RESEARCH_MODES.DEEP) {
+    return normalized;
+  }
+  return RESEARCH_MODES.BALANCED;
+}
+
+async function gatherAutoContext(
+  storyId,
+  query,
+  { sourcesOnly = false, includeLiveWeb = false, includeDeterm = false } = {}
+) {
   const trimmed = (query || "").trim();
   if (!trimmed) {
     return "";
   }
 
-  let sourceHits = [];
-  try {
-    const sourceSearch = await searchSourceText(storyId, trimmed, {
-      topK: AUTO_SOURCE_TOP_K,
-      fields: [TEXT_FIELD, "source_label", "url", "filename", "source_id"],
-    });
-    sourceHits = sourceSearch?.result?.hits || [];
-  } catch (error) {
+  const sourcePromise = searchSourceText(storyId, trimmed, {
+    topK: AUTO_SOURCE_TOP_K,
+    fields: [TEXT_FIELD, "source_label", "url", "filename", "source_id"],
+  }).catch((error) => {
     console.warn("Auto-context Pinecone search failed", error.message);
-  }
+    return null;
+  });
 
-  let webResults = [];
-  if (!sourcesOnly && ENABLE_AGENT_WEB_CONTEXT) {
-    try {
-      const webSearch = await prioritizedWebSearch(trimmed, {
+  const webPromise = !sourcesOnly && ENABLE_AGENT_WEB_CONTEXT && includeLiveWeb
+    ? prioritizedWebSearch(trimmed, {
         maxResults: AUTO_WEB_RESULTS,
         topic: "news",
-        includeRawContent: "markdown",
+        searchDepth: process.env.TAVILY_DEFAULT_SEARCH_DEPTH || "basic",
+        includeRawContent: false,
         includeAnswer: false,
-        includeFavicon: true,
-      });
-      webResults = webSearch?.results || [];
-    } catch (error) {
-      console.warn("Auto-context Tavily search failed", error.message);
-    }
-  }
+        includeFavicon: false,
+        timeout: Number(process.env.TAVILY_SEARCH_TIMEOUT_SECONDS) || 5,
+      }).catch((error) => {
+        console.warn("Auto-context Tavily search failed", error.message);
+        return null;
+      })
+    : Promise.resolve(null);
 
-  let determSummary = "";
-  if (!sourcesOnly) {
-    try {
-      determSummary = await buildDetermContextSummary(trimmed);
-    } catch (error) {
-      console.warn("Auto-context Determ fetch failed", error.message);
-    }
-  }
+  const determPromise = !sourcesOnly && includeDeterm
+    ? buildDetermContextSummary(trimmed).catch((error) => {
+        console.warn("Auto-context Determ fetch failed", error.message);
+        return "";
+      })
+    : Promise.resolve("");
+
+  const [sourceSearch, webSearch, determSummary] = await Promise.all([
+    sourcePromise,
+    webPromise,
+    determPromise,
+  ]);
+
+  const sourceHits = sourceSearch?.result?.hits || [];
+  const webResults = webSearch?.results || [];
 
   const sections = [];
   if (sourceHits.length) {
@@ -230,18 +266,49 @@ async function streamAssistantText({ openai, modelName, system, prompt, tools, s
   };
 }
 
-function buildSystemPrompt(story, contextSummary, chatHistorySummary, autoContextSummary, { sourcesOnly = false } = {}) {
+function buildSystemPrompt(
+  story,
+  contextSummary,
+  chatHistorySummary,
+  autoContextSummary,
+  { sourcesOnly = false, researchMode = RESEARCH_MODES.BALANCED } = {}
+) {
   const metadata = story.metadata || {};
   const tags = Array.isArray(metadata.tags) ? metadata.tags : [];
+  const modeInstructions =
+    researchMode === RESEARCH_MODES.FAST
+      ? [
+          "RESEARCH MODE: FAST",
+          "- Optimize for speed and quick time-to-first-answer.",
+          "- Prefer the existing story knowledge base and current context over broad exploration.",
+          "- Keep the answer focused and useful without trying to be exhaustive.",
+        ].join("\n")
+      : researchMode === RESEARCH_MODES.DEEP
+        ? [
+            "RESEARCH MODE: DEEP",
+            "- Be thorough and widen the evidence base when needed.",
+            "- It is acceptable to spend more effort searching for corroboration and broader context.",
+            "- Prefer richer coverage, stronger grounding, and more complete synthesis over raw speed.",
+          ].join("\n")
+        : [
+            "RESEARCH MODE: BALANCED",
+            "- Balance speed with useful depth.",
+            "- Gather enough evidence to be confident, then synthesize without over-researching.",
+          ].join("\n");
   const sections = [
     "You are HealthLens Newsroom AI, a meticulous yet warm and friendly assistant for investigative journalists.",
     "Blend structured analysis with an approachable, conversational tone. Cite facts from provided context.",
     "Be personable without sounding canned. Only greet the user if their current message is itself a greeting or brief small talk. For research, drafting, or analysis requests, skip pleasantries and begin directly with the answer.",
+    modeInstructions,
     [
       "TOOLS (use in order):",
       "1. `search_sources` — query the story's knowledge base for ground-truth quotes and metadata.",
       "2. `search_web` — expand the search when local sources are thin or time-sensitive. Always ping the newsroom's verified domains first (see validWebsites.json) before widening the query.",
       "3. `extract_web_context` — fetch a specific URL and set `upsert: true` when the newsroom needs that source indexed.",
+      "Speed rule: prefer a good-enough answer fast over exhaustive searching.",
+      "After one strong `search_sources` result set, draft immediately unless the user explicitly asked for a deep dive or latest breaking developments.",
+      "Use `search_web` at most once in most turns. Only use it again if the first web pass was clearly insufficient.",
+      "Do not chain multiple tool rounds just to broaden coverage. Synthesize early.",
       "For simple greetings or brief small talk, do NOT use tools; reply directly and warmly.",
       "Do NOT start normal reporting answers with generic openers like 'Hey', 'Great to see you', or 'Nice to hear from you' unless the user just greeted you.",
       "Never skip `search_sources` before drafting, and cite the filename or URL for every claim.",
@@ -437,6 +504,7 @@ async function generateAssistantReply({
   onToken,
   onStatus,
   sourcesOnly = false,
+  researchMode = RESEARCH_MODES.BALANCED,
 }) {
   if (!story) {
     throw new Error("Story context is required for agent replies");
@@ -449,8 +517,27 @@ async function generateAssistantReply({
 
   const openai = getOpenAIClient();
   const modelName = process.env.NEWSROOM_MODEL || DEFAULT_MODEL;
-  const maxSteps = Number(process.env.AGENT_MAX_TOOL_STEPS) || 8;
+  const normalizedResearchMode = normalizeResearchMode(researchMode);
+  const maxSteps = normalizedResearchMode === RESEARCH_MODES.DEEP
+    ? Number(process.env.AGENT_MAX_TOOL_STEPS_DEEP) || 5
+    : normalizedResearchMode === RESEARCH_MODES.FAST
+      ? Number(process.env.AGENT_MAX_TOOL_STEPS_FAST) || 1
+      : Number(process.env.AGENT_MAX_TOOL_STEPS) || 2;
   const lightweightConversation = isLightweightConversation(prompt);
+  const freshContextNeeded = needsFreshContext(prompt);
+  const deepResearchRequested = needsDeepResearch(prompt);
+  const toolLoopRequired = !sourcesOnly && (
+    normalizedResearchMode === RESEARCH_MODES.DEEP ||
+    requiresSlowToolLoop(prompt)
+  );
+  const includeLiveWeb = !lightweightConversation && !sourcesOnly && (
+    normalizedResearchMode === RESEARCH_MODES.DEEP ||
+    (normalizedResearchMode !== RESEARCH_MODES.FAST && (freshContextNeeded || deepResearchRequested))
+  );
+  const includeDeterm =
+    normalizedResearchMode === RESEARCH_MODES.DEEP &&
+    includeLiveWeb &&
+    HEALTH_NEWS_REGEX.test(String(prompt || ""));
 
   if (typeof onStatus === "function") {
     await onStatus("Analyzing your query…");
@@ -458,14 +545,18 @@ async function generateAssistantReply({
 
   const autoContextSummary = lightweightConversation
     ? ""
-    : await gatherAutoContext(storyId, prompt, { sourcesOnly });
+    : await gatherAutoContext(storyId, prompt, {
+        sourcesOnly,
+        includeLiveWeb,
+        includeDeterm,
+      });
 
   const systemPrompt = buildSystemPrompt(
     story,
     contextSummary,
     chatHistorySummary,
     autoContextSummary,
-    { sourcesOnly }
+    { sourcesOnly, researchMode: normalizedResearchMode }
   );
   const directAnswerPrompt = buildDirectAnswerSystemPrompt(systemPrompt);
 
@@ -491,6 +582,31 @@ async function generateAssistantReply({
     return {
       text: directResponse.text,
       finishReason: directResponse.finishReason,
+    };
+  }
+
+  if (!toolLoopRequired) {
+    if (typeof onStatus === "function") {
+      await onStatus(
+        normalizedResearchMode === RESEARCH_MODES.FAST
+          ? "Drafting quick answer…"
+          : includeLiveWeb
+            ? "Drafting from gathered evidence…"
+            : "Drafting response…"
+      );
+    }
+
+    const fastResponse = await streamAssistantText({
+      openai,
+      modelName,
+      system: directAnswerPrompt,
+      prompt,
+      onToken,
+    });
+
+    return {
+      text: fastResponse.text,
+      finishReason: fastResponse.finishReason,
     };
   }
 
@@ -550,4 +666,5 @@ async function generateAssistantReply({
 
 module.exports = {
   generateAssistantReply,
+  RESEARCH_MODES,
 };
